@@ -19,7 +19,10 @@ This repository has no `LICENSE` file and grants no license.
 ## Requirements
 
 - Windows PowerShell 5.1 or later.
-- A separate ComfyUI root containing `main.py` and
+- Git and `curl.exe` available on `PATH`.
+- Network access to GitHub and Hugging Face or `hf-mirror.com` for pinned node
+  archives and model downloads.
+- A separate ComfyUI root containing `main.py` and a Python 3.11 or later
   `.venv\Scripts\python.exe`. The examples use `E:\ComfyUI`.
 - The project dependencies from `pyproject.toml` available to that Python
   environment, including the test dependencies when running pytest.
@@ -37,8 +40,33 @@ Set-Location 'E:\ComfyUI-GameAsset-Workflows'
 & 'E:\ComfyUI\.venv\Scripts\python.exe' -m pytest 'tests\game_asset_api_test' -q
 ```
 
-With ComfyUI running locally and `E:\ComfyUI\input\example.png` present, deploy
-with the supported PowerShell entry point:
+### Model Coverage
+
+The five workflows reference nine loader files. The six entries in
+`game_asset_api\model_manifest.py` are managed models: deployment downloads
+missing files from their pinned mirror URLs and verifies byte size and SHA-256
+before publishing them.
+
+The following three Wan files are not in `MODEL_SPECS` and must already be
+installed under the ComfyUI root:
+
+| Relative path | Bytes | SHA-256 | Official source |
+| --- | ---: | --- | --- |
+| `models/diffusion_models/wan2.2_ti2v_5B_fp16.safetensors` | `9999658848` | `456f901338bd9eadbded3828b819109a9b68e8a525ca5cf8d0049a69fcfeca1e` | [Comfy-Org/Wan_2.2_ComfyUI_Repackaged](https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_ti2v_5B_fp16.safetensors) |
+| `models/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors` | `6735906897` | `c3355d30191f1f066b26d93fba017ae9809dce6c627dda5f6a66eaa651204f68` | [Comfy-Org/Wan_2.1_ComfyUI_repackaged](https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors) |
+| `models/vae/wan2.2_vae.safetensors` | `1409400960` | `e40321bd36b9709991dae2530eb4ac303dd168276980d3e9bc4b6e2b75fed156` | [Comfy-Org/Wan_2.2_ComfyUI_Repackaged](https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/vae/wan2.2_vae.safetensors) |
+
+The [Wan2.2 deployment plan](docs/superpowers/plans/2026-07-15-wan2-2-5b-deployment.md)
+records resumable mirror download and verification steps. Verify the listed
+size and SHA-256 before placing each final file. Full deployment only confirms
+that `/object_info` advertises these three filenames; it does not download or
+hash-check them.
+
+### Already-Provisioned Deployment
+
+When all nine model files and pinned custom nodes are already installed, and
+the running ComfyUI server has loaded those nodes, ensure
+`E:\ComfyUI\input\example.png` exists and run the supported entry point:
 
 ```powershell
 Set-Location 'E:\ComfyUI-GameAsset-Workflows'
@@ -47,36 +75,47 @@ Set-Location 'E:\ComfyUI-GameAsset-Workflows'
 
 Deployment validates the ComfyUI root, publishes the five JSON files from
 `workflows` to `E:\ComfyUI\user\default\workflows`, installs or verifies the
-pinned custom nodes and models, checks every workflow node and configured
-loader option against the live `/object_info` response, and runs a two-frame,
-64-pixel smoke action using `input\example.png`.
+pinned custom nodes and six managed models, checks every workflow node and
+configured loader option against the live `/object_info` response, and runs a
+two-frame, 64-pixel smoke action using `input\example.png`.
 
 The published files are `pixel_character_design_api.json`,
 `pixel_character_action_api.json`, `pose_controlled_pixel_action_api.json`,
 `video_wan2_2_5B_ti2v.json`, and `wan2_2_5b_dual_balanced.json`.
 
-Model downloads use the preferred mirror URLs fixed in the manifest. The first
-deployment can take substantial time. `deploy.ps1` does not restart ComfyUI;
-when it installs new nodes, restart ComfyUI so the server loads them, then run
-the same deployment command again.
+### Fresh Or Newly Installed Nodes
 
-The skip switches belong to the Python deployment CLI, not `deploy.ps1`. They
-are useful for isolating an installation, discovery, or smoke-test problem. For
-example, this publishes workflows and runs discovery without reinstalling
-dependencies or running the smoke action:
+A fresh installation is a two-stage operation because a running server cannot
+discover nodes that it has not loaded. Stop ComfyUI normally first; this
+repository does not provide or require a process-kill command. While ComfyUI is
+stopped, install the three unmanaged Wan files listed above, then run the
+installation stage from the standalone repository:
 
 ```powershell
 Set-Location 'E:\ComfyUI-GameAsset-Workflows'
 & 'E:\ComfyUI\.venv\Scripts\python.exe' '.\scripts\deploy.py' `
   --comfy-root 'E:\ComfyUI' `
-  --base-url 'http://127.0.0.1:8188' `
-  --skip-nodes `
-  --skip-models `
+  --skip-discovery `
   --skip-smoke
 ```
 
-The Python CLI also supports `--skip-discovery`; use skip switches only to
-diagnose a known stage, not as evidence of a complete deployment.
+This stage publishes the workflows, installs the pinned custom nodes and their
+requirements, and downloads or verifies the six managed models. Its skipped
+discovery and smoke stages mean it is not a complete deployment validation.
+
+Start or restart ComfyUI normally, wait until `http://127.0.0.1:8188` is
+healthy and startup has finished, then run the complete deployment:
+
+```powershell
+Set-Location 'E:\ComfyUI-GameAsset-Workflows'
+& '.\deploy.ps1' -ComfyRoot 'E:\ComfyUI'
+```
+
+`deploy.ps1` accepts only `-ComfyRoot` and `-BaseUrl`. The diagnostic
+`--skip-nodes`, `--skip-models`, `--skip-discovery`, and `--skip-smoke`
+switches belong only to the direct Python CLI and each bypasses part of full
+validation. A fresh root is therefore not completely provisioned and verified
+by one wrapper command.
 
 ## Run The API
 
@@ -96,6 +135,28 @@ E:\ComfyUI\.venv\Scripts\python.exe -m game_asset_api
 `127.0.0.1`, and the API submits jobs to ComfyUI at `127.0.0.1:8188`. A successful
 `POST /v1/game-assets` returns `202 Accepted`; poll `GET /v1/jobs/{job_id}`.
 The API has no authentication. Do not expose it to an untrusted network.
+
+The POST contract requires only `character_prompt` and `action_prompt`; the job
+generates its own character reference before the action stage, so no reference
+upload or local reference path is required. Submit and poll a minimal job with:
+
+```powershell
+$body = @{
+  character_prompt = 'pixel art knight in blue armor'
+  action_prompt = 'walking in place'
+} | ConvertTo-Json
+
+$job = Invoke-RestMethod `
+  -Method Post `
+  -Uri 'http://127.0.0.1:8190/v1/game-assets' `
+  -ContentType 'application/json' `
+  -Body $body
+
+$job
+Invoke-RestMethod `
+  -Method Get `
+  -Uri ("http://127.0.0.1:8190/v1/jobs/{0}" -f $job.job_id)
+```
 
 ## Run A Pose-Controlled Action
 
@@ -152,11 +213,11 @@ repository's Git index.
 
 ## Provenance And Licensing
 
-`game_asset_api\model_manifest.py` pins each model's preferred source URL,
-destination, byte size, and SHA-256. `game_asset_api\node_manifest.py` pins each
-custom-node archive URL and source revision. Model downloads are promoted only
-after size and hash verification, and custom-node installs record their pinned
-revision.
+`game_asset_api\model_manifest.py` pins each managed model's preferred source
+URL, destination, byte size, and SHA-256. `game_asset_api\node_manifest.py` pins
+each custom-node archive URL and source revision. Managed model downloads are
+promoted only after size and hash verification, and custom-node installs record
+their pinned revision.
 
 Model weights and custom-node sources remain governed by their own upstream
 licenses and model cards. This repository neither redistributes nor
@@ -173,13 +234,19 @@ unchanged, and audit the Git index:
 Set-Location 'E:\ComfyUI-GameAsset-Workflows'
 & 'E:\ComfyUI\.venv\Scripts\python.exe' '.\scripts\export_game_asset_workflows.py'
 & 'E:\ComfyUI\.venv\Scripts\python.exe' '.\scripts\export_pose_controlled_workflow.py'
-git diff -- workflows
+git diff --exit-code -- workflows
+if ($LASTEXITCODE -ne 0) {
+  throw 'Workflow export changed checked-in artifacts.'
+}
 & 'E:\ComfyUI\.venv\Scripts\python.exe' '.\scripts\audit_repository.py'
 ```
 
-An expected export leaves `git diff -- workflows` empty. The audit exits
-nonzero if the Git index contains a forbidden runtime, secret, or oversized
-artifact.
+An expected export leaves `git diff --exit-code -- workflows` at exit code 0.
+The audit examines Git-tracked paths in the index: permitted top-level shape,
+secret-like filenames, blocked runtime/model suffixes, and index blob size. It
+does not read file contents and cannot detect a token or credential stored in
+an otherwise ordinary filename. Before public release, also run an independent
+content-aware secret scanner and manually review the complete staged diff.
 
 ## Troubleshooting
 
@@ -191,9 +258,10 @@ artifact.
   restart ComfyUI and rerun deployment so discovery sees them.
 - Smoke reference errors: create or select a real
   `E:\ComfyUI\input\example.png` before running deployment.
-- Download, size, or hash failures: check network and mirror access. Model
-  downloads use resumable `.part` files and node archives use `.zip.part`;
-  invalid partials are never promoted over verified assets.
+- Download, size, or hash failures: check network and mirror access.
+  Manifest-managed model downloads use resumable `.part` files and node
+  archives use `.zip.part`; invalid partials are never promoted over verified
+  assets. Verify the three unmanaged Wan files separately against the table.
 - Audit violations: inspect `git status --short` and `git ls-files`, then keep
   models, nodes, inputs, outputs, caches, credentials, and local archives
   outside the index.
