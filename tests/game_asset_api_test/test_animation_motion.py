@@ -3,11 +3,7 @@ from math import atan2, pi
 from PIL import Image
 import pytest
 
-from game_asset_api.animation_motion import (
-    PHASE_DURATION_MULTIPLIERS,
-    plan_sword_attack,
-    write_pose_images,
-)
+from game_asset_api.animation_motion import plan_sword_attack, write_pose_images
 from game_asset_api.pose_sequence import SWORD_ATTACK_PHASES, SWORD_ATTACK_POSES
 
 
@@ -52,15 +48,16 @@ def test_two_frame_sword_attack_selects_anticipation_and_contact():
 
 def test_selected_frame_durations_follow_their_phases():
     plan = plan_sword_attack(12)
+    duration_multipliers = (1.5, 1.25, 1.0, 0.5, 1.5, 0.75, 1.0, 1.25)
 
     for frame in plan.frames:
-        multiplier = PHASE_DURATION_MULTIPLIERS[
+        multiplier = duration_multipliers[
             SWORD_ATTACK_PHASES.index(frame.phase)
         ]
         assert frame.duration == pytest.approx(multiplier / 12.0)
 
     contact = next(frame for frame in plan.frames if frame.events == ("hit",))
-    assert contact.duration == pytest.approx(PHASE_DURATION_MULTIPLIERS[4] / 12.0)
+    assert contact.duration == pytest.approx(duration_multipliers[4] / 12.0)
 
 
 def test_sword_attack_plan_locks_planted_foot_through_contact():
