@@ -136,7 +136,7 @@ def _load_descriptor(path: Path) -> dict[str, object]:
         raise ValueError("weapon descriptor is unreadable") from error
     except OSError as error:
         raise ValueError("weapon descriptor is unreadable") from error
-    except json.JSONDecodeError as error:
+    except (json.JSONDecodeError, RecursionError) as error:
         raise ValueError("weapon descriptor is malformed") from error
     if not isinstance(descriptor, dict):
         raise ValueError("weapon descriptor is malformed")
@@ -194,5 +194,5 @@ def _load_rgba_image(path: Path, label: str) -> Image.Image:
     try:
         with Image.open(path) as image:
             return image.convert("RGBA").copy()
-    except (OSError, ValueError, SyntaxError) as error:
+    except (OSError, ValueError, SyntaxError, Image.DecompressionBombError) as error:
         raise ValueError(f"{label} is unreadable") from error

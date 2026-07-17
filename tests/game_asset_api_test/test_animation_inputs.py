@@ -1,5 +1,7 @@
 import json
 from pathlib import Path
+import struct
+import zlib
 
 from PIL import Image
 import pytest
@@ -122,6 +124,15 @@ def test_load_animation_inputs_rejects_malformed_weapon_descriptor(tmp_path):
         load_animation_inputs(input_root, _request())
 
 
+def test_load_animation_inputs_rejects_deeply_nested_weapon_descriptor(tmp_path):
+    input_root = tmp_path / "input"
+    descriptor_path = _write_inputs(input_root)
+    descriptor_path.write_text("[" * 20_000 + "]" * 20_000, encoding="utf-8")
+
+    with pytest.raises(ValueError, match="^weapon descriptor is malformed$"):
+        load_animation_inputs(input_root, _request())
+
+
 def test_load_animation_inputs_rejects_unreadable_weapon_descriptor(tmp_path):
     input_root = tmp_path / "input"
     descriptor_path = _write_inputs(input_root)
@@ -161,6 +172,32 @@ def test_load_animation_inputs_rejects_weapon_without_visible_alpha(tmp_path):
     )
 
     with pytest.raises(ValueError, match="^weapon image alpha is empty$"):
+        load_animation_inputs(input_root, _request())
+
+
+@pytest.mark.parametrize(
+    ("target", "message"),
+    [
+        ("character", "character image is unreadable"),
+        ("weapon", "weapon image is unreadable"),
+    ],
+)
+def test_load_animation_inputs_rejects_decompression_bomb_images(
+    tmp_path, target, message
+):
+    input_root = tmp_path / "input"
+    _write_inputs(input_root)
+    path = (
+        input_root / "characters" / "hero.png"
+        if target == "character"
+        else input_root / "weapons" / "swords" / "art" / "sword.png"
+    )
+    png = bytearray(path.read_bytes())
+    png[16:24] = struct.pack(">II", 100_000, 100_000)
+    png[29:33] = struct.pack(">I", zlib.crc32(png[12:29]))
+    path.write_bytes(png)
+
+    with pytest.raises(ValueError, match=f"^{message}$"):
         load_animation_inputs(input_root, _request())
 
 
