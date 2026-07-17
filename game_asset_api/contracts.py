@@ -62,7 +62,7 @@ def parse_asset_request(data: object) -> AssetRequest:
     ):
         raise RequestError("sprite_size must be one of 64, 96, 128, 256")
 
-    seed = _parse_seed(data["seed"]) if "seed" in data else None
+    seed = parse_seed(data["seed"]) if "seed" in data else None
     return AssetRequest(
         character_prompt=character_prompt,
         action_prompt=action_prompt,
@@ -84,7 +84,7 @@ def _optional_text(data: Mapping[object, object], field: str) -> str | None:
     return value.strip()
 
 
-def _parse_seed(value: object) -> int:
+def parse_seed(value: object) -> int:
     if isinstance(value, bool):
         raise RequestError("seed must be an integer")
     if isinstance(value, int):
