@@ -1,7 +1,9 @@
 import importlib.util
 import json
 from pathlib import Path
+import re
 import subprocess
+from decimal import Decimal
 
 from PIL import Image
 import pytest
@@ -103,7 +105,7 @@ def test_godot_bundle_matches_frames_regions_and_timing(tmp_path):
     first = metadata["frames"][0]
     assert first == {
         "alignment_translation": [0, 0],
-        "duration": motion[0].duration,
+        "duration": 0.13,
         "events": [],
         "index": 0,
         "phase": motion[0].phase,
@@ -129,14 +131,53 @@ def test_godot_bundle_matches_frames_regions_and_timing(tmp_path):
     assert 'region = Rect2(0, 0, 64, 64)' in tres
     assert '"loop": false' in tres
     assert '"speed": 12.0' in tres
-    assert f'"duration": {motion[0].duration * 12.0}' in tres
+    assert '"duration": 1.56' in tres
 
     with Image.open(artifacts.preview) as preview:
         assert preview.n_frames == 8
-        assert preview.info["duration"] == round(motion[0].duration * 100) * 10
+        assert preview.info["duration"] == 130
         preview.seek(1)
-        assert preview.info["duration"] == round(motion[1].duration * 100) * 10
+        assert preview.info["duration"] == 100
         assert "loop" not in preview.info
+
+
+def test_godot_bundle_uses_canonical_durations_for_all_export_artifacts(tmp_path):
+    motion = plan_sword_attack(8).frames
+    original_durations = [frame.duration for frame in motion]
+    artifacts = _write_bundle(tmp_path)
+    metadata = json.loads(artifacts.metadata.read_text(encoding="utf-8"))
+    canonical_durations = [
+        0.13,
+        0.10,
+        0.08,
+        0.04,
+        0.13,
+        0.08,
+        0.09,
+        0.10,
+    ]
+    metadata_durations = [frame["duration"] for frame in metadata["frames"]]
+    tres_durations = [
+        Decimal(duration)
+        for duration in re.findall(
+            r'^"duration": ([0-9.]+),$',
+            artifacts.sprite_frames.read_text(encoding="utf-8"),
+            flags=re.MULTILINE,
+        )
+    ]
+
+    with Image.open(artifacts.preview) as preview:
+        gif_durations = []
+        for index in range(preview.n_frames):
+            preview.seek(index)
+            gif_durations.append(preview.info["duration"])
+
+    assert [frame.duration for frame in motion] == original_durations
+    assert metadata_durations == canonical_durations
+    assert gif_durations == [duration * 1000 for duration in metadata_durations]
+    assert [duration / Decimal(12) for duration in tres_durations] == [
+        Decimal(str(duration)) for duration in metadata_durations
+    ]
 
 
 def test_godot_bundle_rejects_mismatched_artifact_counts(tmp_path):
@@ -188,6 +229,9 @@ def test_validator_copies_the_bundle_and_runs_godot_4_headlessly(tmp_path):
         resource = project / "game_assets" / "cultivator_attack"
         assert (resource / "sprite_frames.tres").is_file()
         assert (resource / "animation.json").is_file()
+        if command[-1] == "--import":
+            assert not (project / "validate_sprite_frames.gd").exists()
+            return subprocess.CompletedProcess(command, 0, "", "")
         assert (project / "validate_sprite_frames.gd").is_file()
         return subprocess.CompletedProcess(command, 0, "", "")
 
@@ -199,8 +243,41 @@ def test_validator_copies_the_bundle_and_runs_godot_4_headlessly(tmp_path):
     )
 
     assert calls[0][0] == [str(fake_godot), "--version"]
-    assert calls[1][0][0] == str(fake_godot)
-    assert calls[1][0][1:] == ["--headless", "--path", calls[1][0][3], "--script", calls[1][0][5]]
+    assert calls[1][0] == [
+        str(fake_godot),
+        "--headless",
+        "--path",
+        calls[1][0][3],
+        "--import",
+    ]
+    assert calls[2][0] == [
+        str(fake_godot),
+        "--headless",
+        "--path",
+        calls[2][0][3],
+        "--script",
+        calls[2][0][5],
+    ]
+
+
+def test_validator_stops_when_godot_import_fails(tmp_path):
+    artifacts = _write_bundle(tmp_path)
+    validator = _load_validator()
+    fake_godot = tmp_path / "godot.exe"
+    fake_godot.write_text("fake", encoding="utf-8")
+
+    def fake_run(command, **_kwargs):
+        if command[-1] == "--version":
+            return subprocess.CompletedProcess(command, 0, "4.4.stable\n", "")
+        raise subprocess.CalledProcessError(1, command)
+
+    with pytest.raises(ValueError, match="^Godot import failed$"):
+        validator.validate_bundle(
+            fake_godot,
+            artifacts.metadata.parent,
+            "res://game_assets/cultivator_attack",
+            runner=fake_run,
+        )
 
 
 def test_validator_rejects_parser_and_prefix_errors(tmp_path, monkeypatch):

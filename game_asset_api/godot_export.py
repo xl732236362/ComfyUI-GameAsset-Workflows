@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+from math import floor
 from pathlib import Path
 
 from PIL import Image
@@ -51,20 +52,22 @@ def write_godot_bundle(
     spritesheet, columns, rows = write_sprite_sheet(
         list(frames), output / "spritesheet.png"
     )
+    durations = _canonical_durations(motion)
     metadata = _write_metadata(
         output,
         request,
         frames[0].size,
         motion,
+        durations,
         translations,
         weapon_transforms,
         columns,
         rows,
     )
     sprite_frames = _write_sprite_frames(
-        output, request, frames[0].size, motion, columns
+        output, request, frames[0].size, motion, durations, columns
     )
-    preview = _write_preview(output, frames, motion)
+    preview = _write_preview(output, frames, durations)
     return GodotArtifacts(tuple(paths), spritesheet, sprite_frames, metadata, preview)
 
 
@@ -73,6 +76,7 @@ def _write_metadata(
     request: AnimationRequest,
     frame_size: tuple[int, int],
     motion: tuple[MotionFrame, ...],
+    durations: tuple[float, ...],
     translations: tuple[tuple[int, int], ...],
     weapon_transforms: tuple[WeaponTransform, ...],
     columns: int,
@@ -81,15 +85,15 @@ def _write_metadata(
     width, height = frame_size
     entries = []
     events = []
-    for index, (frame, translation, transform) in enumerate(
-        zip(motion, translations, weapon_transforms, strict=True)
+    for index, (frame, duration, translation, transform) in enumerate(
+        zip(motion, durations, translations, weapon_transforms, strict=True)
     ):
         for event in frame.events:
             events.append({"frame": index, "name": event})
         entries.append(
             {
                 "alignment_translation": list(translation),
-                "duration": frame.duration,
+                "duration": duration,
                 "events": list(frame.events),
                 "index": index,
                 "phase": frame.phase,
@@ -140,6 +144,7 @@ def _write_sprite_frames(
     request: AnimationRequest,
     frame_size: tuple[int, int],
     motion: tuple[MotionFrame, ...],
+    durations: tuple[float, ...],
     columns: int,
 ) -> Path:
     width, height = frame_size
@@ -163,10 +168,10 @@ def _write_sprite_frames(
         )
     frames = ",\n".join(
         "{\n"
-        f'"duration": {frame.duration * 12.0},\n'
+        f'"duration": {format(duration * 12.0, ".12g")},\n'
         f'"texture": SubResource("AtlasTexture_{index:03d}")\n'
         "}"
-        for index, frame in enumerate(motion)
+        for index, duration in enumerate(durations)
     )
     sections.extend(
         (
@@ -186,7 +191,7 @@ def _write_sprite_frames(
 
 
 def _write_preview(
-    output: Path, frames: tuple[Image.Image, ...], motion: tuple[MotionFrame, ...]
+    output: Path, frames: tuple[Image.Image, ...], durations: tuple[float, ...]
 ) -> Path:
     path = output / "preview.gif"
     frames[0].save(
@@ -194,10 +199,22 @@ def _write_preview(
         format="GIF",
         save_all=True,
         append_images=list(frames[1:]),
-        duration=[round(frame.duration * 1000) for frame in motion],
+        duration=[round(duration * 1000) for duration in durations],
         disposal=2,
     )
     return path
+
+
+def _canonical_durations(motion: tuple[MotionFrame, ...]) -> tuple[float, ...]:
+    cumulative_requested_ms = 0.0
+    cumulative_exported_ms = 0
+    durations = []
+    for frame in motion:
+        cumulative_requested_ms += frame.duration * 1000
+        exported_ms = floor(cumulative_requested_ms / 10 + 0.5) * 10
+        durations.append((exported_ms - cumulative_exported_ms) / 1000)
+        cumulative_exported_ms = exported_ms
+    return tuple(durations)
 
 
 def _region(index: int, columns: int, width: int, height: int) -> dict[str, int]:

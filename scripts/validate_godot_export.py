@@ -64,6 +64,13 @@ def validate_bundle(
         target = project / resource_path
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copytree(bundle, target)
+        try:
+            runner(
+                [str(godot), "--headless", "--path", str(project), "--import"],
+                check=True,
+            )
+        except (FileNotFoundError, subprocess.CalledProcessError) as error:
+            raise ValueError("Godot import failed") from error
         script = project / "validate_sprite_frames.gd"
         script.write_text(_validation_script(resource_prefix), encoding="utf-8")
         try:
