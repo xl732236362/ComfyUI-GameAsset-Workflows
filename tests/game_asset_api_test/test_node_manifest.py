@@ -1,5 +1,6 @@
 from pathlib import Path
 import importlib.util
+import subprocess
 from zipfile import ZipFile
 
 import pytest
@@ -101,7 +102,7 @@ def test_install_node_archive_refuses_to_overwrite_unmanaged_directory(tmp_path)
     assert (destination / "user-file.py").read_text() == "user data"
 
 
-def test_node_installer_skips_download_for_matching_existing_install(
+def test_node_installer_skips_download_but_installs_matching_requirements(
     tmp_path, monkeypatch
 ):
     module = _load_node_installer()
@@ -111,7 +112,39 @@ def test_node_installer_skips_download_for_matching_existing_install(
     destination = root / "custom_nodes" / spec.name
     destination.mkdir(parents=True)
     (destination / ".codex-source-revision").write_text(revision + "\n")
-    (destination / "requirements.txt").write_text("example-package\n")
+    requirements = destination / "requirements.txt"
+    requirements.write_text("example-package\n")
+    python = tmp_path / "python.exe"
+    calls = []
+
+    def fake_run(command, check):
+        calls.append((command, check))
+
+    monkeypatch.setattr(module.subprocess, "run", fake_run)
+
+    result = module.install_one(spec, root, python)
+
+    assert result == destination
+    assert calls == [
+        (
+            [str(python), "-m", "pip", "install", "-r", str(requirements)],
+            True,
+        )
+    ]
+    assert not (root / "temp").exists()
+    assert requirements.read_text() == "example-package\n"
+
+
+def test_node_installer_skips_download_and_pip_without_matching_requirements(
+    tmp_path, monkeypatch
+):
+    module = _load_node_installer()
+    revision = "e" * 40
+    spec = NodeSpec("example_node", "https://example.invalid/node.zip", revision)
+    root = tmp_path / "comfy"
+    destination = root / "custom_nodes" / spec.name
+    destination.mkdir(parents=True)
+    (destination / ".codex-source-revision").write_text(revision + "\n")
     calls = _forbid_installer_subprocess(module, monkeypatch)
 
     result = module.install_one(spec, root, tmp_path / "python.exe")
@@ -119,7 +152,40 @@ def test_node_installer_skips_download_for_matching_existing_install(
     assert result == destination
     assert calls == []
     assert not (root / "temp").exists()
-    assert (destination / "requirements.txt").read_text() == "example-package\n"
+
+
+def test_node_installer_retries_matching_requirements_after_pip_failure(
+    tmp_path, monkeypatch
+):
+    module = _load_node_installer()
+    revision = "e" * 40
+    spec = NodeSpec("example_node", "https://example.invalid/node.zip", revision)
+    root = tmp_path / "comfy"
+    destination = root / "custom_nodes" / spec.name
+    destination.mkdir(parents=True)
+    marker = destination / ".codex-source-revision"
+    marker.write_text(revision + "\n")
+    requirements = destination / "requirements.txt"
+    requirements.write_text("example-package\n")
+    python = tmp_path / "python.exe"
+    command = [str(python), "-m", "pip", "install", "-r", str(requirements)]
+    calls = []
+
+    def fail_run(actual_command, check):
+        calls.append((actual_command, check))
+        raise subprocess.CalledProcessError(1, actual_command)
+
+    monkeypatch.setattr(module.subprocess, "run", fail_run)
+
+    for _ in range(2):
+        with pytest.raises(subprocess.CalledProcessError):
+            module.install_one(spec, root, python)
+        assert marker.read_text() == revision + "\n"
+        assert requirements.read_text() == "example-package\n"
+
+    assert calls == [(command, True), (command, True)]
+    assert destination.is_dir()
+    assert not (root / "temp").exists()
 
 
 @pytest.mark.parametrize("marker_revision", [None, "f" * 40], ids=("missing", "mismatch"))
@@ -162,6 +228,43 @@ def test_node_installer_refuses_nondirectory_destination_before_download(
     assert calls == []
     assert not (root / "temp").exists()
     assert destination.read_text() == "user data"
+
+
+def test_node_installer_publishes_fresh_archive_and_installs_requirements(
+    tmp_path, monkeypatch
+):
+    module = _load_node_installer()
+    revision = "e" * 40
+    spec = NodeSpec("example_node", "https://example.invalid/node.zip", revision)
+    root = tmp_path / "comfy"
+    archive = root / "temp" / "pose_workflow_node_archives" / f"{spec.name}-{revision}.zip"
+    archive.parent.mkdir(parents=True)
+    _write_archive(
+        archive,
+        {
+            "owner-node-revision/__init__.py": b"NODE_CLASS_MAPPINGS = {}\n",
+            "owner-node-revision/requirements.txt": b"example-package\n",
+        },
+    )
+    python = tmp_path / "python.exe"
+    calls = []
+
+    def fake_run(command, check):
+        calls.append((command, check))
+
+    monkeypatch.setattr(module.subprocess, "run", fake_run)
+
+    destination = module.install_one(spec, root, python)
+
+    requirements = destination / "requirements.txt"
+    assert destination == root / "custom_nodes" / spec.name
+    assert (destination / ".codex-source-revision").read_text() == revision + "\n"
+    assert calls == [
+        (
+            [str(python), "-m", "pip", "install", "-r", str(requirements)],
+            True,
+        )
+    ]
 
 
 def test_node_installer_uses_explicit_root_and_python(tmp_path, monkeypatch):

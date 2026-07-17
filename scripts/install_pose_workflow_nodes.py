@@ -25,6 +25,7 @@ from game_asset_api.node_manifest import (
 def install_one(spec: NodeSpec, root: Path, python: Path) -> Path:
     destination = existing_node_install(spec, root)
     if destination is not None:
+        _install_requirements(destination, python)
         return destination
 
     archive_dir = root / "temp" / "pose_workflow_node_archives"
@@ -51,13 +52,17 @@ def install_one(spec: NodeSpec, root: Path, python: Path) -> Path:
         os.replace(partial, archive)
 
     destination = install_node_archive(spec, root, archive)
+    _install_requirements(destination, python)
+    return destination
+
+
+def _install_requirements(destination: Path, python: Path) -> None:
     requirements = destination / "requirements.txt"
     if requirements.is_file():
         subprocess.run(
             [str(python), "-m", "pip", "install", "-r", str(requirements)],
             check=True,
         )
-    return destination
 
 
 def _valid_zip(path: Path) -> bool:
