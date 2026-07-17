@@ -19,7 +19,7 @@ from game_asset_api.workflows import (
 )
 
 
-WORKFLOW_DIRECTORY = ROOT / "user" / "default" / "workflows"
+WORKFLOW_DIRECTORY = ROOT / "workflows"
 JOB_ID = "example-job"
 
 

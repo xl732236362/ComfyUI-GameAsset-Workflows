@@ -97,15 +97,16 @@ def test_export_script_writes_prompt_wrapped_workflow_json_artifacts():
     script = ROOT / "scripts" / "export_game_asset_workflows.py"
 
     subprocess.run([sys.executable, str(script)], cwd=ROOT, check=True)
+    assert not (ROOT / "user").exists()
 
     for name in ("pixel_character_design_api.json", "pixel_character_action_api.json"):
-        path = ROOT / "user" / "default" / "workflows" / name
+        path = ROOT / "workflows" / name
         with path.open(encoding="utf-8") as workflow_file:
             workflow = json.load(workflow_file)
         assert isinstance(workflow.get("prompt"), dict)
 
     action = json.loads(
-        (ROOT / "user" / "default" / "workflows" / "pixel_character_action_api.json").read_text(
+        (ROOT / "workflows" / "pixel_character_action_api.json").read_text(
             encoding="utf-8"
         )
     )

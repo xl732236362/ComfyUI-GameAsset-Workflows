@@ -135,13 +135,8 @@ def test_export_script_writes_prompt_wrapped_pose_workflow():
     )
 
     assert result.returncode == 0, result.stderr
-    output = (
-        ROOT
-        / "user"
-        / "default"
-        / "workflows"
-        / "pose_controlled_pixel_action_api.json"
-    )
+    assert not (ROOT / "user").exists()
+    output = ROOT / "workflows" / "pose_controlled_pixel_action_api.json"
     payload = json.loads(output.read_text(encoding="utf-8"))
     graph = payload["prompt"]
     load_images = [

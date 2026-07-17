@@ -15,13 +15,7 @@ from game_asset_api.contracts import parse_asset_request
 from game_asset_api.pose_workflow import build_pose_controlled_workflow
 
 
-OUTPUT_PATH = (
-    ROOT
-    / "user"
-    / "default"
-    / "workflows"
-    / "pose_controlled_pixel_action_api.json"
-)
+OUTPUT_PATH = ROOT / "workflows" / "pose_controlled_pixel_action_api.json"
 
 
 def main() -> None:
