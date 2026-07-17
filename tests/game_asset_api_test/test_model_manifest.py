@@ -228,3 +228,21 @@ def test_installer_accepts_an_explicit_deployment_root(tmp_path, monkeypatch):
     module.main(["--root", str(tmp_path)])
 
     assert calls == [("model-spec", tmp_path)]
+
+
+def test_installer_requires_an_explicit_deployment_root(monkeypatch):
+    project_root = Path(__file__).resolve().parents[2]
+    script = project_root / "scripts" / "install_game_asset_models.py"
+    spec = importlib.util.spec_from_file_location("install_game_asset_models", script)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    calls = []
+
+    monkeypatch.setattr(module, "MODEL_SPECS", ("model-spec",))
+    monkeypatch.setattr(module, "install", lambda model, root: calls.append((model, root)))
+
+    with pytest.raises(SystemExit):
+        module.main([])
+
+    assert calls == []

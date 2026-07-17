@@ -1,5 +1,4 @@
 from pathlib import Path
-import runpy
 import subprocess
 from contextlib import contextmanager
 from unittest.mock import patch
@@ -8,6 +7,7 @@ from uuid import uuid4
 import pytest
 
 import game_asset_api.app as app_module
+import game_asset_api.__main__ as main_module
 from game_asset_api.app import create_app
 from game_asset_api.contracts import AssetRequest, parse_asset_request
 from game_asset_api.jobs import JobStatus, JobStore
@@ -411,7 +411,32 @@ async def test_app_cleanup_closes_owned_client_when_runner_stop_fails(aiohttp_cl
     assert owned_client.close_calls == 1
 
 
-def test_main_constructs_local_api_with_environment_host_and_port(monkeypatch):
+def test_project_root_from_environment_returns_comfyui_root(monkeypatch, tmp_path):
+    runtime_root = tmp_path / "ComfyUI"
+    runtime_root.mkdir()
+    (runtime_root / "main.py").write_text("", encoding="utf-8")
+    monkeypatch.setenv("COMFYUI_ROOT", str(runtime_root))
+
+    assert main_module._project_root_from_environment() == runtime_root.resolve()
+
+
+def test_project_root_from_environment_requires_comfyui_root(monkeypatch):
+    monkeypatch.delenv("COMFYUI_ROOT", raising=False)
+
+    with pytest.raises(ValueError, match="COMFYUI_ROOT"):
+        main_module._project_root_from_environment()
+
+
+def test_project_root_from_environment_requires_main_py(monkeypatch, tmp_path):
+    runtime_root = tmp_path / "not-comfyui"
+    runtime_root.mkdir()
+    monkeypatch.setenv("COMFYUI_ROOT", str(runtime_root))
+
+    with pytest.raises(ValueError, match="COMFYUI_ROOT"):
+        main_module._project_root_from_environment()
+
+
+def test_main_constructs_local_api_with_environment_host_and_port(monkeypatch, tmp_path):
     calls: dict[str, object] = {}
 
     class FakeClient:
@@ -432,15 +457,19 @@ def test_main_constructs_local_api_with_environment_host_and_port(monkeypatch):
 
     monkeypatch.setenv("GAME_ASSET_API_HOST", "0.0.0.0")
     monkeypatch.setenv("GAME_ASSET_API_PORT", "9001")
+    runtime_root = tmp_path / "ComfyUI"
+    runtime_root.mkdir()
+    (runtime_root / "main.py").write_text("", encoding="utf-8")
+    monkeypatch.setenv("COMFYUI_ROOT", str(runtime_root))
     with (
-        patch("game_asset_api.comfy_client.ComfyClient", FakeClient),
-        patch("game_asset_api.jobs.JobRunner", FakeRunner),
-        patch("game_asset_api.app.create_app", fake_create_app),
-        patch("aiohttp.web.run_app", fake_run_app),
+        patch.object(main_module, "ComfyClient", FakeClient),
+        patch.object(main_module, "JobRunner", FakeRunner),
+        patch.object(main_module, "create_app", fake_create_app),
+        patch.object(main_module.web, "run_app", fake_run_app),
     ):
-        runpy.run_module("game_asset_api.__main__", run_name="__main__")
+        main_module.main()
 
-    assert calls["project_root"] == Path(__file__).resolve().parents[2]
+    assert calls["project_root"] == runtime_root.resolve()
     assert calls["runner_client"] is calls["app_client"]
     assert calls["app_runner"] is not None
     assert calls["run"] == ("app", "0.0.0.0", 9001)
@@ -449,9 +478,9 @@ def test_main_constructs_local_api_with_environment_host_and_port(monkeypatch):
 def test_main_rejects_invalid_port_before_starting_server(monkeypatch):
     monkeypatch.setenv("GAME_ASSET_API_PORT", "not-a-port")
 
-    with patch("aiohttp.web.run_app") as run_app:
+    with patch.object(main_module.web, "run_app") as run_app:
         with pytest.raises(ValueError, match="GAME_ASSET_API_PORT must be an integer"):
-            runpy.run_module("game_asset_api.__main__", run_name="__main__")
+            main_module.main()
 
     run_app.assert_not_called()
 
@@ -463,4 +492,6 @@ def test_readme_documents_game_asset_api_runtime():
 
     assert "POST /v1/game-assets" in readme
     assert "GAME_ASSET_API_HOST" in readme
+    assert r"Set-Location E:\ComfyUI-GameAsset-Workflows" in readme
+    assert r"$env:COMFYUI_ROOT = 'E:\ComfyUI'" in readme
     assert r"E:\ComfyUI\.venv\Scripts\python.exe -m game_asset_api" in readme

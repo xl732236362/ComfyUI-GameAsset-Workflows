@@ -17,7 +17,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--root",
         type=Path,
-        default=Path(__file__).resolve().parents[1],
+        required=True,
         help="ComfyUI deployment root",
     )
     root = parser.parse_args(argv).root

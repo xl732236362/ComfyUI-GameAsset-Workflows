@@ -15,11 +15,21 @@ from game_asset_api.jobs import JobRunner
 def main() -> None:
     """Construct and run the local game asset API."""
     port = _port_from_environment()
-    project_root = Path(__file__).resolve().parents[1]
+    project_root = _project_root_from_environment()
     client = ComfyClient()
     runner = JobRunner(project_root, client)
     app = create_app(runner, client)
     web.run_app(app, host=os.environ.get("GAME_ASSET_API_HOST", "127.0.0.1"), port=port)
+
+
+def _project_root_from_environment() -> Path:
+    value = os.environ.get("COMFYUI_ROOT")
+    if not value:
+        raise ValueError("COMFYUI_ROOT must point to the ComfyUI installation")
+    root = Path(value).expanduser().resolve()
+    if not (root / "main.py").is_file():
+        raise ValueError("COMFYUI_ROOT must contain main.py")
+    return root
 
 
 def _port_from_environment() -> int:

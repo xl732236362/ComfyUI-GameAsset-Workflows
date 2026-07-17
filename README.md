@@ -22,13 +22,16 @@ Deploy the toolkit into a ComfyUI installation with:
 
 ## Run the API
 
-Configure the ComfyUI installation and API port, then start the package:
+From the standalone repository, configure the separate ComfyUI installation and API port, then start the package with the ComfyUI Python environment:
 
 ```powershell
+Set-Location E:\ComfyUI-GameAsset-Workflows
 $env:COMFYUI_ROOT = 'E:\ComfyUI'
 $env:GAME_ASSET_API_PORT = '8190'
 E:\ComfyUI\.venv\Scripts\python.exe -m game_asset_api
 ```
+
+The standalone repository is the workflow and API source checkout. `COMFYUI_ROOT` must point to the ComfyUI runtime installation and must contain `main.py`.
 
 `GAME_ASSET_API_HOST` defaults to `127.0.0.1`. Set it to `0.0.0.0` only for a trusted LAN; the API has no authentication and must not be exposed to untrusted networks. ComfyUI itself must remain available at `127.0.0.1:8188`.
 
