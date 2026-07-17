@@ -33,12 +33,17 @@ def _sized_file(path: Path, size: int) -> None:
         file.truncate(size)
 
 
-def _run_git(repository: Path, *arguments: str) -> subprocess.CompletedProcess:
+def _run_git(
+    repository: Path,
+    *arguments: str,
+    input_data: bytes | None = None,
+) -> subprocess.CompletedProcess:
     return subprocess.run(
         ["git", *arguments],
         cwd=repository,
         check=True,
         capture_output=True,
+        input=input_data,
     )
 
 
@@ -46,6 +51,31 @@ def _initialize_git_repository(path: Path) -> Path:
     path.mkdir()
     _run_git(path, "init", "-q")
     return path
+
+
+def _repository_with_replaced_index_blob(tmp_path: Path) -> tuple[Path, Path]:
+    repository = _initialize_git_repository(tmp_path / "repository")
+    relative = Path("docs/staged.bin")
+    staged_file = repository / relative
+    _sized_file(staged_file, MAX_TRACKED_BYTES + 1)
+    _run_git(repository, "add", "--", relative.as_posix())
+    large_oid = _run_git(
+        repository, "rev-parse", f":{relative.as_posix()}"
+    ).stdout.strip()
+    small_oid = _run_git(
+        repository,
+        "hash-object",
+        "-w",
+        "--stdin",
+        input_data=b"small",
+    ).stdout.strip()
+    _run_git(
+        repository,
+        "replace",
+        large_oid.decode("ascii"),
+        small_oid.decode("ascii"),
+    )
+    return repository, relative
 
 
 def _mock_index_commands(
@@ -66,6 +96,7 @@ def _mock_index_commands(
             stdout = metadata
         elif command == [
             "git",
+            "--no-replace-objects",
             "cat-file",
             "--batch-check=%(objectname) %(objecttype) %(objectsize)",
         ]:
@@ -281,6 +312,7 @@ def test_cli_audits_nul_delimited_git_paths_and_exits_cleanly(
         (
             [
                 "git",
+                "--no-replace-objects",
                 "cat-file",
                 "--batch-check=%(objectname) %(objecttype) %(objectsize)",
             ],
@@ -402,6 +434,32 @@ def test_cli_accepts_ordinary_and_exactly_ten_mib_staged_blobs(
 
     assert module.main() is None
     assert capsys.readouterr().err == ""
+
+
+def test_index_sizes_ignore_replace_refs(tmp_path, monkeypatch):
+    repository, relative = _repository_with_replaced_index_blob(tmp_path)
+    module = _load_audit_script()
+    monkeypatch.setattr(module, "root", repository)
+
+    assert module._parse_index_sizes([relative]) == {
+        relative: MAX_TRACKED_BYTES + 1
+    }
+
+
+def test_cli_rejects_an_oversized_index_blob_hidden_by_a_replace_ref(
+    tmp_path, monkeypatch, capsys
+):
+    repository, relative = _repository_with_replaced_index_blob(tmp_path)
+    module = _load_audit_script()
+    monkeypatch.setattr(module, "root", repository)
+
+    with pytest.raises(SystemExit) as captured_exit:
+        module.main()
+
+    assert captured_exit.value.code == 1
+    assert capsys.readouterr().err == (
+        f"{relative.as_posix()}: file exceeds 10 MiB\n"
+    )
 
 
 def test_cli_accepts_symlink_mode_metadata_and_uses_its_blob_size(

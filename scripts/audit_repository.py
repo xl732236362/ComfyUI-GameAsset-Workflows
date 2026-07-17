@@ -67,6 +67,7 @@ def _parse_index_sizes(relative_paths: list[Path]) -> dict[Path, int]:
     objects = _run_git(
         [
             "git",
+            "--no-replace-objects",
             "cat-file",
             "--batch-check=%(objectname) %(objecttype) %(objectsize)",
         ],
