@@ -1,0 +1,403 @@
+{
+  "prompt": {
+    "1": {
+      "class_type": "CheckpointLoaderSimple",
+      "inputs": {
+        "ckpt_name": "sd_xl_base_1.0.safetensors"
+      }
+    },
+    "2": {
+      "class_type": "LoraLoader",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "clip": [
+          "1",
+          1
+        ],
+        "lora_name": "pixel-art-xl.safetensors",
+        "strength_model": 1.0,
+        "strength_clip": 1.0
+      }
+    },
+    "3": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "game_assets/example-production-animation/reference.png"
+      }
+    },
+    "4": {
+      "class_type": "IPAdapterModelLoader",
+      "inputs": {
+        "ipadapter_file": "ip-adapter-plus_sdxl_vit-h.safetensors"
+      }
+    },
+    "5": {
+      "class_type": "CLIPVisionLoader",
+      "inputs": {
+        "clip_name": "CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors"
+      }
+    },
+    "6": {
+      "class_type": "IPAdapterAdvanced",
+      "inputs": {
+        "model": [
+          "2",
+          0
+        ],
+        "ipadapter": [
+          "4",
+          0
+        ],
+        "image": [
+          "3",
+          0
+        ],
+        "clip_vision": [
+          "5",
+          0
+        ],
+        "weight": 0.8,
+        "weight_type": "style transfer",
+        "combine_embeds": "concat",
+        "start_at": 0.0,
+        "end_at": 1.0,
+        "embeds_scaling": "V only"
+      }
+    },
+    "7": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "text": "white-robed cultivator, fixed side view, locked camera, consistent identity, empty hands, pixel-art",
+        "clip": [
+          "2",
+          1
+        ]
+      }
+    },
+    "8": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "text": "blurry, low quality, distorted, photorealistic, text, watermark, sword, weapon, scabbard, camera drift, duplicate limbs, cropped character",
+        "clip": [
+          "2",
+          1
+        ]
+      }
+    },
+    "9": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "game_assets/example-production-animation/poses/000.png"
+      }
+    },
+    "10": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "game_assets/example-production-animation/poses/001.png"
+      }
+    },
+    "11": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "game_assets/example-production-animation/poses/002.png"
+      }
+    },
+    "12": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "game_assets/example-production-animation/poses/003.png"
+      }
+    },
+    "13": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "game_assets/example-production-animation/poses/004.png"
+      }
+    },
+    "14": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "game_assets/example-production-animation/poses/005.png"
+      }
+    },
+    "15": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "game_assets/example-production-animation/poses/006.png"
+      }
+    },
+    "16": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "game_assets/example-production-animation/poses/007.png"
+      }
+    },
+    "25": {
+      "class_type": "ImageBatch",
+      "inputs": {
+        "image1": [
+          "9",
+          0
+        ],
+        "image2": [
+          "10",
+          0
+        ]
+      }
+    },
+    "26": {
+      "class_type": "ImageBatch",
+      "inputs": {
+        "image1": [
+          "25",
+          0
+        ],
+        "image2": [
+          "11",
+          0
+        ]
+      }
+    },
+    "27": {
+      "class_type": "ImageBatch",
+      "inputs": {
+        "image1": [
+          "26",
+          0
+        ],
+        "image2": [
+          "12",
+          0
+        ]
+      }
+    },
+    "28": {
+      "class_type": "ImageBatch",
+      "inputs": {
+        "image1": [
+          "27",
+          0
+        ],
+        "image2": [
+          "13",
+          0
+        ]
+      }
+    },
+    "29": {
+      "class_type": "ImageBatch",
+      "inputs": {
+        "image1": [
+          "28",
+          0
+        ],
+        "image2": [
+          "14",
+          0
+        ]
+      }
+    },
+    "30": {
+      "class_type": "ImageBatch",
+      "inputs": {
+        "image1": [
+          "29",
+          0
+        ],
+        "image2": [
+          "15",
+          0
+        ]
+      }
+    },
+    "31": {
+      "class_type": "ImageBatch",
+      "inputs": {
+        "image1": [
+          "30",
+          0
+        ],
+        "image2": [
+          "16",
+          0
+        ]
+      }
+    },
+    "40": {
+      "class_type": "ControlNetLoader",
+      "inputs": {
+        "control_net_name": "OpenPoseXL2.safetensors"
+      }
+    },
+    "41": {
+      "class_type": "ControlNetApplyAdvanced",
+      "inputs": {
+        "positive": [
+          "7",
+          0
+        ],
+        "negative": [
+          "8",
+          0
+        ],
+        "control_net": [
+          "40",
+          0
+        ],
+        "image": [
+          "31",
+          0
+        ],
+        "strength": 0.9,
+        "start_percent": 0.0,
+        "end_percent": 1.0
+      }
+    },
+    "42": {
+      "class_type": "ADE_LoadAnimateDiffModel",
+      "inputs": {
+        "model_name": "mm_sdxl_v10_beta.safetensors"
+      }
+    },
+    "43": {
+      "class_type": "ADE_StandardUniformContextOptions",
+      "inputs": {
+        "context_length": 8,
+        "context_overlap": 0,
+        "context_stride": 1,
+        "context_schedule": "uniform",
+        "closed_loop": false,
+        "fuse_method": "flat"
+      }
+    },
+    "44": {
+      "class_type": "ADE_ApplyAnimateDiffModelSimple",
+      "inputs": {
+        "motion_model": [
+          "42",
+          0
+        ],
+        "context_options": [
+          "43",
+          0
+        ]
+      }
+    },
+    "45": {
+      "class_type": "ADE_UseEvolvedSampling",
+      "inputs": {
+        "model": [
+          "6",
+          0
+        ],
+        "m_models": [
+          "44",
+          0
+        ],
+        "beta_schedule": "autoselect"
+      }
+    },
+    "46": {
+      "class_type": "EmptyLatentImage",
+      "inputs": {
+        "width": 512,
+        "height": 512,
+        "batch_size": 8
+      }
+    },
+    "47": {
+      "class_type": "KSampler",
+      "inputs": {
+        "model": [
+          "45",
+          0
+        ],
+        "seed": 42,
+        "steps": 30,
+        "cfg": 7,
+        "sampler_name": "dpmpp_2m",
+        "scheduler": "karras",
+        "positive": [
+          "41",
+          0
+        ],
+        "negative": [
+          "41",
+          1
+        ],
+        "latent_image": [
+          "46",
+          0
+        ],
+        "denoise": 1.0
+      }
+    },
+    "48": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "47",
+          0
+        ],
+        "vae": [
+          "1",
+          2
+        ]
+      }
+    },
+    "49": {
+      "class_type": "LoadBackgroundRemovalModel",
+      "inputs": {
+        "bg_removal_name": "BiRefNet-general-epoch_244.safetensors"
+      }
+    },
+    "50": {
+      "class_type": "RemoveBackground",
+      "inputs": {
+        "bg_removal_model": [
+          "49",
+          0
+        ],
+        "image": [
+          "48",
+          0
+        ]
+      }
+    },
+    "51": {
+      "class_type": "InvertMask",
+      "inputs": {
+        "mask": [
+          "50",
+          0
+        ]
+      }
+    },
+    "52": {
+      "class_type": "JoinImageWithAlpha",
+      "inputs": {
+        "image": [
+          "48",
+          0
+        ],
+        "alpha": [
+          "51",
+          0
+        ]
+      }
+    },
+    "73": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "images": [
+          "52",
+          0
+        ],
+        "filename_prefix": ".animation_work/example-production-animation/source"
+      }
+    }
+  }
+}
