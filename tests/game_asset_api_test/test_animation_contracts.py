@@ -178,6 +178,27 @@ def test_animation_request_rejects_unsafe_godot_prefixes(prefix):
         )
 
 
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        (
+            "character_image",
+            "characters/a\x00.png",
+            "character_image must be a safe relative path",
+        ),
+        ("weapon", "weapons/a\x00.json", "weapon must be a safe relative path"),
+        (
+            "godot_resource_prefix",
+            "res://game_assets/a\x00",
+            "godot_resource_prefix must be safe",
+        ),
+    ],
+)
+def test_animation_request_rejects_nul_paths(field, value, message):
+    with pytest.raises(RequestError, match=f"^{message}$"):
+        parse_animation_request({**VALID_REQUEST, field: value})
+
+
 def test_animation_request_normalizes_explicit_safe_godot_prefix():
     request = parse_animation_request(
         {

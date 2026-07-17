@@ -91,7 +91,8 @@ def _unsafe_path(value: str) -> bool:
     posix = PurePosixPath(value)
     windows = PureWindowsPath(value)
     return (
-        posix.is_absolute()
+        "\x00" in value
+        or posix.is_absolute()
         or windows.is_absolute()
         or bool(windows.drive)
         or any(
