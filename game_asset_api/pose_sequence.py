@@ -176,14 +176,14 @@ def write_sword_attack_pose_sequence(
     output_directory.mkdir(parents=True, exist_ok=True)
     paths = []
     for index, pose in enumerate(poses):
-        image = _render_pose(pose)
+        image = render_pose(pose)
         path = output_directory / f"{index:03d}.png"
         image.save(path, format="PNG")
         paths.append(path)
     return paths
 
 
-def _render_pose(pose: Pose) -> Image.Image:
+def render_pose(pose: Pose) -> Image.Image:
     image = Image.new("RGB", (512, 512), (0, 0, 0))
     draw = ImageDraw.Draw(image)
     for (start, end), color in zip(LIMBS, COLORS):
