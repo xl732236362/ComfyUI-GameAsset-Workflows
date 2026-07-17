@@ -135,14 +135,18 @@ both report `success` and `completed=true` in ComfyUI history.
 
 ## Eight-Frame Pose Audit
 
-The Task 7 run used the following reference and produced the eight final frames
-below. All eight frame PNGs are `128x128` RGBA with transparent corners and
-non-empty foreground. Alpha is `0..255` except frame `000`, whose maximum is
-`254`.
+The Task 7 pose runner read
+`input/game_assets/4b39a56a-f754-4653-b718-30d4227bba2b/reference.png` and
+copied identical bytes to
+`input/game_assets/standalone-repo-live-audit/reference.png`. It produced the
+eight final frames below. All eight frame PNGs are `128x128` RGBA with
+transparent corners and non-empty foreground. Alpha is `0..255` except frame
+`000`, whose maximum is `254`.
 
 | Artifact relative to ComfyUI root | Bytes | SHA-256 | Evidence |
 | --- | ---: | --- | --- |
-| `input/example.png` | `8589` | `a8e215ad32a0052fc4190e9c5863428d5ee35cd98b246243842ba8360511b7c4` | `768x768` RGB reference |
+| `input/game_assets/4b39a56a-f754-4653-b718-30d4227bba2b/reference.png` | `282969` | `8b3a779471507928c7bc4660af9143981311b329f4c97445d01461de0be4798b` | `512x512` RGBA source; alpha coverage `0.305920`; transparent corners |
+| `input/game_assets/standalone-repo-live-audit/reference.png` | `282969` | `8b3a779471507928c7bc4660af9143981311b329f4c97445d01461de0be4798b` | Exact runner copy of the source reference |
 | `output/game_assets/standalone-repo-live-audit/pose_action/frames/000.png` | `17217` | `67769dc2133fa94aff5e3fd40dc12b1dc93522e5d642b2f2884c63632023cd8f` | RGBA, alpha `0..254` |
 | `output/game_assets/standalone-repo-live-audit/pose_action/frames/001.png` | `17648` | `f2c2000bd3f22abebda3f16d11cc6e7687c5d452463c88f090dbcb586ad163ed` | RGBA, alpha `0..255` |
 | `output/game_assets/standalone-repo-live-audit/pose_action/frames/002.png` | `16215` | `e39c5941c0f522518a421d799deb20df4b4eb634eeefd5c3c56bfb5d7ba30b4e` | RGBA, alpha `0..255` |
@@ -154,13 +158,14 @@ non-empty foreground. Alpha is `0..255` except frame `000`, whose maximum is
 | `output/game_assets/standalone-repo-live-audit/pose_action/spritesheet.png` | `142500` | `9f2475a12d3b00525d9bf5b6282876625fb650793743ec3dba3e3d42b6855c6e` | `384x384` RGBA, alpha `0..255`, transparent corners |
 | `output/game_assets/standalone-repo-live-audit/pose_action/standalone-repo-live-audit-preview.gif` | `23554` | `195fe3c03dfeaa9466d4d4c3d25ad793a7f2587fce79f2f594b52043f78b4313` | `ffprobe`: GIF, `128x128`, `8` read frames, `1.010000` seconds |
 
-The body poses form a readable anticipation-to-recovery sequence, but the
-requested wide horizontal sword arc is unclear: the blade remains mostly
-vertical, and sword angle/length, hand contact, face, and silhouette drift
-between independently generated frames. OpenPose constrains body joints, not
-weapon geometry. The visual result is suitable for workflow demonstration and
-iteration, not for production animation without weapon-specific control or
-manual cleanup.
+The reference itself combines front and side character views, which introduces
+competing direction cues and aggravates orientation drift. The body poses form
+a readable anticipation-to-recovery sequence, but the requested wide
+horizontal sword arc is unclear: the blade remains mostly vertical, and sword
+angle/length, hand contact, face, and silhouette drift between independently
+generated frames. OpenPose constrains body joints, not weapon geometry. The
+visual result is suitable for workflow demonstration and iteration, not for
+production animation without weapon-specific control or manual cleanup.
 
 ## Official-Checkout Deployment Smoke
 
