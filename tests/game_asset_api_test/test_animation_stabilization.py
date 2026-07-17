@@ -24,8 +24,12 @@ def _motion(root: tuple[float, float] = (240.0, 416.0)) -> MotionFrame:
     )
 
 
-def _write_frame(path: Path, box: tuple[int, int, int, int] = (4, 2, 12, 14)) -> None:
-    image = Image.new("RGBA", (16, 16), (0, 0, 0, 0))
+def _write_frame(
+    path: Path,
+    box: tuple[int, int, int, int] = (4, 2, 12, 14),
+    size: tuple[int, int] = (16, 16),
+) -> None:
+    image = Image.new("RGBA", size, (0, 0, 0, 0))
     for y in range(box[1], box[3]):
         for x in range(box[0], box[2]):
             image.putpixel((x, y), (20, 120, 220, 255))
@@ -87,6 +91,31 @@ def test_stabilization_rejects_mismatched_generated_and_motion_counts(tmp_path):
         stabilize_character_frames((source,), (), 64)
 
 
+def test_stabilization_rejects_mixed_source_frame_dimensions(tmp_path):
+    first = tmp_path / "first.png"
+    second = tmp_path / "second.png"
+    _write_frame(first)
+    _write_frame(second, size=(32, 16))
+
+    with pytest.raises(
+        ValueError,
+        match="^generated frames must have the same dimensions$",
+    ):
+        stabilize_character_frames((first, second), (_motion(), _motion()), 64)
+
+
+def test_stabilization_scales_non_square_source_roots_per_axis(tmp_path):
+    source = tmp_path / "frame.png"
+    _write_frame(source, box=(6, 2, 14, 10), size=(32, 16))
+
+    result = stabilize_character_frames(
+        (source,), (_motion(root=(176.0, 320.0)),), 64
+    )
+
+    assert result.translations == ((2, 1),)
+    assert result.frames[0].getchannel("A").getbbox() == (16, 12, 32, 44)
+
+
 def test_stabilization_rejects_aligned_foreground_that_would_clip(tmp_path):
     clipped = tmp_path / "clipped.png"
     _write_frame(clipped, box=(0, 2, 8, 14))
@@ -95,6 +124,22 @@ def test_stabilization_rejects_aligned_foreground_that_would_clip(tmp_path):
         stabilize_character_frames(
             (clipped,), (_motion(root=(480.0, 416.0)),), 64
         )
+
+
+def test_stabilization_preserves_partial_alpha_after_alignment(tmp_path):
+    source = tmp_path / "frame.png"
+    _write_frame(source)
+    with Image.open(source) as opened:
+        image = opened.copy()
+    image.putpixel((4, 2), (20, 120, 220, 128))
+    image.save(source)
+
+    result = stabilize_character_frames(
+        (source,), (_motion(root=(272.0, 416.0)),), 64
+    )
+
+    assert result.translations == ((1, 0),)
+    assert result.frames[0].getpixel((20, 8)) == (20, 120, 220, 128)
 
 
 def test_stabilization_returns_copied_nearest_resized_frames(tmp_path):

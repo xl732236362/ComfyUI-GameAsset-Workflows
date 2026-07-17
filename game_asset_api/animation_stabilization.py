@@ -26,9 +26,15 @@ def stabilize_character_frames(
 
     frames = []
     translations = []
+    frame_size = None
     for path, target in zip(paths, motion):
         with Image.open(path) as source:
             frame = source.convert("RGBA").copy()
+
+        if frame_size is None:
+            frame_size = frame.size
+        elif frame.size != frame_size:
+            raise ValueError("generated frames must have the same dimensions")
 
         alpha = frame.getchannel("A")
         bounds = alpha.getbbox()
