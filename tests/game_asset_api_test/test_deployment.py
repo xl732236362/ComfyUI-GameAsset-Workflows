@@ -117,6 +117,10 @@ def _object_info_fixture() -> dict:
         "ControlNetLoader": {
             "control_net_name": choices("OpenPoseXL2.safetensors")
         },
+        "ImageScale": {
+            "upscale_method": choices("nearest-exact"),
+            "crop": choices("disabled"),
+        },
         "KSampler": {
             "sampler_name": choices("dpmpp_2m", "uni_pc"),
             "scheduler": choices("karras", "simple"),
@@ -412,6 +416,22 @@ def test_validate_object_info_rejects_missing_ipadapter_weight_type():
         _validate_object_info(object_info)
 
     assert "style transfer" in str(captured.value)
+
+
+def test_validate_object_info_reports_all_missing_image_scale_options():
+    object_info = _object_info_fixture()
+    image_scale = object_info["ImageScale"]["input"]["required"]
+    image_scale["upscale_method"] = [["bilinear"]]
+    image_scale["crop"] = [["center"]]
+
+    with pytest.raises(ValueError, match="object_info") as captured:
+        _validate_object_info(object_info)
+
+    message = str(captured.value)
+    assert "ImageScale.upscale_method" in message
+    assert "nearest-exact" in message
+    assert "ImageScale.crop" in message
+    assert "disabled" in message
 
 
 @pytest.mark.parametrize(

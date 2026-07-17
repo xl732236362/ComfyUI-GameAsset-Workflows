@@ -32,6 +32,8 @@ _DISCOVERY_INPUTS = frozenset(
         ("IPAdapterAdvanced", "combine_embeds"),
         ("IPAdapterAdvanced", "embeds_scaling"),
         ("ControlNetLoader", "control_net_name"),
+        ("ImageScale", "upscale_method"),
+        ("ImageScale", "crop"),
         ("KSampler", "sampler_name"),
         ("KSampler", "scheduler"),
     }
