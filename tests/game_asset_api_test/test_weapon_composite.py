@@ -5,7 +5,11 @@ import pytest
 
 from game_asset_api.animation_inputs import WeaponAsset
 from game_asset_api.animation_motion import MotionFrame
-from game_asset_api.weapon_composite import composite_weapons
+from game_asset_api.weapon_composite import (
+    _normalized_rgb,
+    _shared_palette,
+    composite_weapons,
+)
 
 
 def _character(
@@ -30,6 +34,23 @@ def _gradient_character(offset: int) -> Image.Image:
                 ((x * 3 + offset) % 256, (y * 5 + offset) % 256, (x + y + offset) % 256, 255),
             )
     return image
+
+
+def _palette_pressure_frame() -> tuple[Image.Image, dict[tuple[int, int], tuple[int, int, int]]]:
+    image = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+    visible = {}
+    for index in range(255):
+        point = (index % 64, index // 64)
+        color = (index, (index * 53) % 256, (index * 97) % 256)
+        image.putpixel(point, (*color, 255))
+        visible[point] = color
+    for index in range(255, 64 * 64):
+        point = (index % 64, index // 64)
+        image.putpixel(
+            point,
+            ((index * 17) % 256, (index * 29) % 256, (index * 43) % 256, 0),
+        )
+    return image, visible
 
 
 def _weapon() -> WeaponAsset:
@@ -171,6 +192,41 @@ def test_weapon_composite_uses_a_sequence_palette_of_at_most_255_rgb_colors():
     assert all(
         len(set(frame.get_flattened_data())) <= 256 for frame in result.frames
     )
+
+
+def test_shared_palette_reserves_all_255_visible_colors_from_hidden_rgb_values():
+    source, visible = _palette_pressure_frame()
+
+    normalized = _normalized_rgb(source)
+    frame = _shared_palette((source,))[0]
+
+    assert {
+        normalized.getpixel((index % 64, index // 64))
+        for index in range(255, 64 * 64)
+    } == {(0, 0, 0)}
+    assert {
+        point: frame.getpixel(point)[:3]
+        for point in visible
+    } == visible
+    assert all(
+        frame.getpixel((index % 64, index // 64))[3] == 0
+        for index in range(255, 64 * 64)
+    )
+
+
+def test_weapon_raster_covers_rotated_grip_and_tip_pixels():
+    result = composite_weapons(
+        (Image.new("RGBA", (64, 64), (0, 0, 0, 0)),),
+        (_motion((256.0, 160.0), (256.0, 400.0)),),
+        _weapon(),
+    )
+
+    transform = result.transforms[0]
+    alpha = result.frames[0].getchannel("A")
+
+    assert transform.transformed_grip == pytest.approx((32.0, 20.0), abs=1.0)
+    assert transform.transformed_tip == pytest.approx((32.0, 50.0), abs=1.0)
+    assert alpha.getbbox() == (31, 20, 32, 51)
 
 
 def test_weapon_composite_restores_original_alpha_after_palette_quantization():

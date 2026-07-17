@@ -204,16 +204,8 @@ def _reject_clipped_weapon(
 
 
 def _shared_palette(frames: tuple[Image.Image, ...]) -> tuple[Image.Image, ...]:
-    rgb_frames = tuple(frame.convert("RGB") for frame in frames)
-    palette_source = Image.new(
-        "RGB",
-        (rgb_frames[0].width, sum(frame.height for frame in rgb_frames)),
-    )
-    offset = 0
-    for frame in rgb_frames:
-        palette_source.paste(frame, (0, offset))
-        offset += frame.height
-    palette = palette_source.quantize(
+    rgb_frames = tuple(_normalized_rgb(frame) for frame in frames)
+    palette = _palette_source(rgb_frames, frames).quantize(
         colors=255,
         method=Image.Quantize.MEDIANCUT,
         dither=Image.Dither.NONE,
@@ -225,3 +217,33 @@ def _shared_palette(frames: tuple[Image.Image, ...]) -> tuple[Image.Image, ...]:
         frame.putalpha(original.getchannel("A"))
         quantized.append(frame)
     return tuple(quantized)
+
+
+def _normalized_rgb(frame: Image.Image) -> Image.Image:
+    rgb = frame.convert("RGB")
+    transparent = frame.getchannel("A").point(
+        lambda alpha: 255 if alpha == 0 else 0
+    )
+    rgb.paste((0, 0, 0), mask=transparent)
+    return rgb
+
+
+def _palette_source(
+    rgb_frames: tuple[Image.Image, ...], frames: tuple[Image.Image, ...]
+) -> Image.Image:
+    colors = []
+    for rgb, frame in zip(rgb_frames, frames):
+        alpha = frame.getchannel("A").get_flattened_data()
+        colors.extend(
+            color
+            for color, opacity in zip(rgb.get_flattened_data(), alpha)
+            if opacity != 0
+        )
+    if not colors:
+        return Image.new("RGB", (1, 1), (0, 0, 0))
+
+    width = min(rgb_frames[0].width, len(colors))
+    height = (len(colors) + width - 1) // width
+    palette_source = Image.new("RGB", (width, height), colors[0])
+    palette_source.putdata(colors + [colors[0]] * (width * height - len(colors)))
+    return palette_source
