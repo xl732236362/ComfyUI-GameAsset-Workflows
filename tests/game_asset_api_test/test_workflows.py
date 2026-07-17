@@ -1,6 +1,7 @@
 import importlib
 import importlib.util
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -93,22 +94,26 @@ def test_character_workflow_rejects_unsafe_job_ids(job_id):
         workflows.build_character_workflow(request, job_id)
 
 
-def test_export_script_writes_prompt_wrapped_workflow_json_artifacts():
-    script = ROOT / "scripts" / "export_game_asset_workflows.py"
+def test_export_script_writes_prompt_wrapped_workflow_json_artifacts(tmp_path):
+    temporary_root = tmp_path / "exporter_repo"
+    script = temporary_root / "scripts" / "export_game_asset_workflows.py"
+    script.parent.mkdir(parents=True)
+    shutil.copy2(ROOT / "scripts" / script.name, script)
+    shutil.copytree(ROOT / "game_asset_api", temporary_root / "game_asset_api")
 
-    subprocess.run([sys.executable, str(script)], cwd=ROOT, check=True)
-    assert not (ROOT / "user").exists()
+    subprocess.run([sys.executable, str(script)], cwd=temporary_root, check=True)
+    assert not (temporary_root / "user").exists()
 
     for name in ("pixel_character_design_api.json", "pixel_character_action_api.json"):
-        path = ROOT / "workflows" / name
+        path = temporary_root / "workflows" / name
         with path.open(encoding="utf-8") as workflow_file:
             workflow = json.load(workflow_file)
         assert isinstance(workflow.get("prompt"), dict)
 
     action = json.loads(
-        (ROOT / "workflows" / "pixel_character_action_api.json").read_text(
-            encoding="utf-8"
-        )
+        (
+            temporary_root / "workflows" / "pixel_character_action_api.json"
+        ).read_text(encoding="utf-8")
     )
     assert action["prompt"]["9"]["inputs"]["image"] == (
         "game_assets/example-job/reference.png"

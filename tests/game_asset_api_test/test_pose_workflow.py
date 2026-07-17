@@ -2,6 +2,7 @@ import importlib
 import importlib.util
 import json
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 from types import SimpleNamespace
@@ -123,20 +124,24 @@ def test_pose_workflow_exposes_ipadapter_weight_type_for_tuning():
     )
 
 
-def test_export_script_writes_prompt_wrapped_pose_workflow():
-    script = ROOT / "scripts" / "export_pose_controlled_workflow.py"
+def test_export_script_writes_prompt_wrapped_pose_workflow(tmp_path):
+    temporary_root = tmp_path / "exporter_repo"
+    script = temporary_root / "scripts" / "export_pose_controlled_workflow.py"
+    script.parent.mkdir(parents=True)
+    shutil.copy2(ROOT / "scripts" / script.name, script)
+    shutil.copytree(ROOT / "game_asset_api", temporary_root / "game_asset_api")
 
     result = subprocess.run(
         [sys.executable, str(script)],
-        cwd=ROOT,
+        cwd=temporary_root,
         capture_output=True,
         text=True,
         check=False,
     )
 
     assert result.returncode == 0, result.stderr
-    assert not (ROOT / "user").exists()
-    output = ROOT / "workflows" / "pose_controlled_pixel_action_api.json"
+    assert not (temporary_root / "user").exists()
+    output = temporary_root / "workflows" / "pose_controlled_pixel_action_api.json"
     payload = json.loads(output.read_text(encoding="utf-8"))
     graph = payload["prompt"]
     load_images = [
