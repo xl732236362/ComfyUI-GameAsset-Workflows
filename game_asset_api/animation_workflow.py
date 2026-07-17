@@ -108,7 +108,7 @@ def build_production_animation_workflow(
 
     pose_node_ids = []
     for index, pose_image in enumerate(pose_images):
-        node_id = str(9 + index)
+        node_id = str(20 + index)
         graph[node_id] = {
             "class_type": "LoadImage",
             "inputs": {"image": pose_image},
@@ -117,7 +117,7 @@ def build_production_animation_workflow(
 
     batched_poses = [pose_node_ids[0], 0]
     for index, pose_node_id in enumerate(pose_node_ids[1:], start=1):
-        batch_node_id = str(24 + index)
+        batch_node_id = str(39 + index)
         graph[batch_node_id] = {
             "class_type": "ImageBatch",
             "inputs": {
@@ -129,27 +129,31 @@ def build_production_animation_workflow(
 
     graph.update(
         {
-            "40": {
+            "60": {
                 "class_type": "ControlNetLoader",
                 "inputs": {"control_net_name": "OpenPoseXL2.safetensors"},
             },
-            "41": {
+            "61": {
                 "class_type": "ControlNetApplyAdvanced",
                 "inputs": {
                     "positive": ["7", 0],
                     "negative": ["8", 0],
-                    "control_net": ["40", 0],
+                    "control_net": ["60", 0],
                     "image": batched_poses,
                     "strength": 0.9,
                     "start_percent": 0.0,
                     "end_percent": 1.0,
                 },
             },
-            "42": {
+            "62": {
                 "class_type": "ADE_LoadAnimateDiffModel",
                 "inputs": {"model_name": "mm_sdxl_v10_beta.safetensors"},
             },
-            "43": {
+            "63": {
+                "class_type": "ADE_ApplyAnimateDiffModelSimple",
+                "inputs": {"motion_model": ["62", 0]},
+            },
+            "64": {
                 "class_type": "ADE_StandardUniformContextOptions",
                 "inputs": {
                     "context_length": context_length,
@@ -160,22 +164,16 @@ def build_production_animation_workflow(
                     "fuse_method": "flat",
                 },
             },
-            "44": {
-                "class_type": "ADE_ApplyAnimateDiffModelSimple",
-                "inputs": {
-                    "motion_model": ["42", 0],
-                    "context_options": ["43", 0],
-                },
-            },
-            "45": {
+            "65": {
                 "class_type": "ADE_UseEvolvedSampling",
                 "inputs": {
                     "model": ["6", 0],
-                    "m_models": ["44", 0],
+                    "m_models": ["63", 0],
                     "beta_schedule": "autoselect",
+                    "context_options": ["64", 0],
                 },
             },
-            "46": {
+            "66": {
                 "class_type": "EmptyLatentImage",
                 "inputs": {
                     "width": 512,
@@ -183,47 +181,47 @@ def build_production_animation_workflow(
                     "batch_size": request.frame_count,
                 },
             },
-            "47": {
+            "67": {
                 "class_type": "KSampler",
                 "inputs": {
-                    "model": ["45", 0],
+                    "model": ["65", 0],
                     "seed": request.seed or 0,
                     "steps": 30,
                     "cfg": 7,
                     "sampler_name": "dpmpp_2m",
                     "scheduler": "karras",
-                    "positive": ["41", 0],
-                    "negative": ["41", 1],
-                    "latent_image": ["46", 0],
+                    "positive": ["61", 0],
+                    "negative": ["61", 1],
+                    "latent_image": ["66", 0],
                     "denoise": 1.0,
                 },
             },
-            "48": {
+            "68": {
                 "class_type": "VAEDecode",
-                "inputs": {"samples": ["47", 0], "vae": ["1", 2]},
+                "inputs": {"samples": ["67", 0], "vae": ["1", 2]},
             },
-            "49": {
+            "69": {
                 "class_type": "LoadBackgroundRemovalModel",
                 "inputs": {
                     "bg_removal_name": "BiRefNet-general-epoch_244.safetensors"
                 },
             },
-            "50": {
+            "70": {
                 "class_type": "RemoveBackground",
-                "inputs": {"bg_removal_model": ["49", 0], "image": ["48", 0]},
+                "inputs": {"bg_removal_model": ["69", 0], "image": ["68", 0]},
             },
-            "51": {
+            "71": {
                 "class_type": "InvertMask",
-                "inputs": {"mask": ["50", 0]},
+                "inputs": {"mask": ["70", 0]},
             },
-            "52": {
+            "72": {
                 "class_type": "JoinImageWithAlpha",
-                "inputs": {"image": ["48", 0], "alpha": ["51", 0]},
+                "inputs": {"image": ["68", 0], "alpha": ["71", 0]},
             },
             OUTPUT_NODE_ID: {
                 "class_type": "SaveImage",
                 "inputs": {
-                    "images": ["52", 0],
+                    "images": ["72", 0],
                     "filename_prefix": f".animation_work/{job_id}/source",
                 },
             },

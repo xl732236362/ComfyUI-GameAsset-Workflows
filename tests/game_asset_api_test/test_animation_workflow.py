@@ -93,24 +93,39 @@ def test_production_animation_workflow_builds_one_batched_temporal_graph():
     }
 
     assert graph["3"]["inputs"]["image"] == "game_assets/production-job/reference.png"
+    assert [
+        graph[str(node_id)]["inputs"]["image"] for node_id in range(20, 28)
+    ] == list(_pose_images("production-job", 8))
     assert graph["40"] == {
+        "class_type": "ImageBatch",
+        "inputs": {"image1": ["20", 0], "image2": ["21", 0]},
+    }
+    assert graph["46"] == {
+        "class_type": "ImageBatch",
+        "inputs": {"image1": ["45", 0], "image2": ["27", 0]},
+    }
+    assert graph["60"] == {
         "class_type": "ControlNetLoader",
         "inputs": {"control_net_name": "OpenPoseXL2.safetensors"},
     }
-    assert graph["41"]["inputs"]["image"] == ["31", 0]
-    assert graph["41"]["inputs"]["strength"] == 0.9
+    assert graph["61"]["inputs"]["image"] == ["46", 0]
+    assert graph["61"]["inputs"]["strength"] == 0.9
     assert _single_node(graph, "EmptyLatentImage")["inputs"] == {
         "width": 512,
         "height": 512,
         "batch_size": 8,
     }
 
-    assert graph["42"] == {
+    assert graph["62"] == {
         "class_type": "ADE_LoadAnimateDiffModel",
         "inputs": {"model_name": "mm_sdxl_v10_beta.safetensors"},
     }
-    assert graph["43"]["class_type"] == "ADE_StandardUniformContextOptions"
-    assert graph["43"]["inputs"] == {
+    assert graph["63"] == {
+        "class_type": "ADE_ApplyAnimateDiffModelSimple",
+        "inputs": {"motion_model": ["62", 0]},
+    }
+    assert graph["64"]["class_type"] == "ADE_StandardUniformContextOptions"
+    assert graph["64"]["inputs"] == {
         "context_length": 8,
         "context_overlap": 0,
         "context_stride": 1,
@@ -118,44 +133,44 @@ def test_production_animation_workflow_builds_one_batched_temporal_graph():
         "closed_loop": False,
         "fuse_method": "flat",
     }
-    assert graph["44"]["class_type"] == "ADE_ApplyAnimateDiffModelSimple"
-    assert graph["45"] == {
+    assert graph["65"] == {
         "class_type": "ADE_UseEvolvedSampling",
         "inputs": {
             "model": ["6", 0],
-            "m_models": ["44", 0],
             "beta_schedule": "autoselect",
+            "m_models": ["63", 0],
+            "context_options": ["64", 0],
         },
     }
 
     sampler = _single_node(graph, "KSampler")
     assert sampler["inputs"] == {
-        "model": ["45", 0],
+        "model": ["65", 0],
         "seed": 42,
         "steps": 30,
         "cfg": 7,
         "sampler_name": "dpmpp_2m",
         "scheduler": "karras",
-        "positive": ["41", 0],
-        "negative": ["41", 1],
-        "latent_image": ["46", 0],
+        "positive": ["61", 0],
+        "negative": ["61", 1],
+        "latent_image": ["66", 0],
         "denoise": 1.0,
     }
     assert _single_node(graph, "LoadBackgroundRemovalModel")["inputs"] == {
         "bg_removal_name": "BiRefNet-general-epoch_244.safetensors"
     }
-    assert graph["51"] == {
+    assert graph["71"] == {
         "class_type": "InvertMask",
-        "inputs": {"mask": ["50", 0]},
+        "inputs": {"mask": ["70", 0]},
     }
-    assert graph["52"] == {
+    assert graph["72"] == {
         "class_type": "JoinImageWithAlpha",
-        "inputs": {"image": ["48", 0], "alpha": ["51", 0]},
+        "inputs": {"image": ["68", 0], "alpha": ["71", 0]},
     }
     assert graph[OUTPUT_NODE_ID] == {
         "class_type": "SaveImage",
         "inputs": {
-            "images": ["52", 0],
+            "images": ["72", 0],
             "filename_prefix": ".animation_work/production-job/source",
         },
     }
@@ -205,10 +220,10 @@ def test_production_animation_workflow_rejects_pose_count_mismatch():
 def test_production_animation_workflow_uses_two_frame_preflight_context():
     graph = _graph(frame_count=2, seed=None)
 
-    assert graph["43"]["inputs"]["context_length"] == 2
-    assert graph["43"]["inputs"]["context_overlap"] == 0
-    assert graph["43"]["inputs"]["context_stride"] == 1
-    assert graph["41"]["inputs"]["image"] == ["25", 0]
+    assert graph["64"]["inputs"]["context_length"] == 2
+    assert graph["64"]["inputs"]["context_overlap"] == 0
+    assert graph["64"]["inputs"]["context_stride"] == 1
+    assert graph["61"]["inputs"]["image"] == ["40", 0]
     assert _single_node(graph, "EmptyLatentImage")["inputs"]["batch_size"] == 2
     assert _single_node(graph, "KSampler")["inputs"]["seed"] == 0
 
@@ -222,9 +237,9 @@ def test_production_animation_workflow_selects_context_for_each_supported_batch(
 ):
     graph = _graph(frame_count=frame_count)
 
-    assert graph["43"]["inputs"]["context_length"] == context_length
-    assert graph["43"]["inputs"]["context_overlap"] == context_overlap
-    assert graph["43"]["inputs"]["context_stride"] == 1
+    assert graph["64"]["inputs"]["context_length"] == context_length
+    assert graph["64"]["inputs"]["context_overlap"] == context_overlap
+    assert graph["64"]["inputs"]["context_stride"] == 1
     assert sum(node["class_type"] == "ImageBatch" for node in graph.values()) == (
         frame_count - 1
     )

@@ -87,152 +87,152 @@
         ]
       }
     },
-    "9": {
+    "20": {
       "class_type": "LoadImage",
       "inputs": {
         "image": "game_assets/example-production-animation/poses/000.png"
       }
     },
-    "10": {
+    "21": {
       "class_type": "LoadImage",
       "inputs": {
         "image": "game_assets/example-production-animation/poses/001.png"
       }
     },
-    "11": {
+    "22": {
       "class_type": "LoadImage",
       "inputs": {
         "image": "game_assets/example-production-animation/poses/002.png"
       }
     },
-    "12": {
+    "23": {
       "class_type": "LoadImage",
       "inputs": {
         "image": "game_assets/example-production-animation/poses/003.png"
       }
     },
-    "13": {
+    "24": {
       "class_type": "LoadImage",
       "inputs": {
         "image": "game_assets/example-production-animation/poses/004.png"
       }
     },
-    "14": {
+    "25": {
       "class_type": "LoadImage",
       "inputs": {
         "image": "game_assets/example-production-animation/poses/005.png"
       }
     },
-    "15": {
+    "26": {
       "class_type": "LoadImage",
       "inputs": {
         "image": "game_assets/example-production-animation/poses/006.png"
       }
     },
-    "16": {
+    "27": {
       "class_type": "LoadImage",
       "inputs": {
         "image": "game_assets/example-production-animation/poses/007.png"
       }
     },
-    "25": {
+    "40": {
       "class_type": "ImageBatch",
       "inputs": {
         "image1": [
-          "9",
+          "20",
           0
         ],
         "image2": [
-          "10",
+          "21",
           0
         ]
       }
     },
-    "26": {
+    "41": {
       "class_type": "ImageBatch",
       "inputs": {
         "image1": [
+          "40",
+          0
+        ],
+        "image2": [
+          "22",
+          0
+        ]
+      }
+    },
+    "42": {
+      "class_type": "ImageBatch",
+      "inputs": {
+        "image1": [
+          "41",
+          0
+        ],
+        "image2": [
+          "23",
+          0
+        ]
+      }
+    },
+    "43": {
+      "class_type": "ImageBatch",
+      "inputs": {
+        "image1": [
+          "42",
+          0
+        ],
+        "image2": [
+          "24",
+          0
+        ]
+      }
+    },
+    "44": {
+      "class_type": "ImageBatch",
+      "inputs": {
+        "image1": [
+          "43",
+          0
+        ],
+        "image2": [
           "25",
           0
-        ],
-        "image2": [
-          "11",
-          0
         ]
       }
     },
-    "27": {
+    "45": {
       "class_type": "ImageBatch",
       "inputs": {
         "image1": [
+          "44",
+          0
+        ],
+        "image2": [
           "26",
           0
-        ],
-        "image2": [
-          "12",
-          0
         ]
       }
     },
-    "28": {
+    "46": {
       "class_type": "ImageBatch",
       "inputs": {
         "image1": [
+          "45",
+          0
+        ],
+        "image2": [
           "27",
           0
-        ],
-        "image2": [
-          "13",
-          0
         ]
       }
     },
-    "29": {
-      "class_type": "ImageBatch",
-      "inputs": {
-        "image1": [
-          "28",
-          0
-        ],
-        "image2": [
-          "14",
-          0
-        ]
-      }
-    },
-    "30": {
-      "class_type": "ImageBatch",
-      "inputs": {
-        "image1": [
-          "29",
-          0
-        ],
-        "image2": [
-          "15",
-          0
-        ]
-      }
-    },
-    "31": {
-      "class_type": "ImageBatch",
-      "inputs": {
-        "image1": [
-          "30",
-          0
-        ],
-        "image2": [
-          "16",
-          0
-        ]
-      }
-    },
-    "40": {
+    "60": {
       "class_type": "ControlNetLoader",
       "inputs": {
         "control_net_name": "OpenPoseXL2.safetensors"
       }
     },
-    "41": {
+    "61": {
       "class_type": "ControlNetApplyAdvanced",
       "inputs": {
         "positive": [
@@ -244,11 +244,11 @@
           0
         ],
         "control_net": [
-          "40",
+          "60",
           0
         ],
         "image": [
-          "31",
+          "46",
           0
         ],
         "strength": 0.9,
@@ -256,13 +256,22 @@
         "end_percent": 1.0
       }
     },
-    "42": {
+    "62": {
       "class_type": "ADE_LoadAnimateDiffModel",
       "inputs": {
         "model_name": "mm_sdxl_v10_beta.safetensors"
       }
     },
-    "43": {
+    "63": {
+      "class_type": "ADE_ApplyAnimateDiffModelSimple",
+      "inputs": {
+        "motion_model": [
+          "62",
+          0
+        ]
+      }
+    },
+    "64": {
       "class_type": "ADE_StandardUniformContextOptions",
       "inputs": {
         "context_length": 8,
@@ -273,20 +282,7 @@
         "fuse_method": "flat"
       }
     },
-    "44": {
-      "class_type": "ADE_ApplyAnimateDiffModelSimple",
-      "inputs": {
-        "motion_model": [
-          "42",
-          0
-        ],
-        "context_options": [
-          "43",
-          0
-        ]
-      }
-    },
-    "45": {
+    "65": {
       "class_type": "ADE_UseEvolvedSampling",
       "inputs": {
         "model": [
@@ -294,13 +290,17 @@
           0
         ],
         "m_models": [
-          "44",
+          "63",
           0
         ],
-        "beta_schedule": "autoselect"
+        "beta_schedule": "autoselect",
+        "context_options": [
+          "64",
+          0
+        ]
       }
     },
-    "46": {
+    "66": {
       "class_type": "EmptyLatentImage",
       "inputs": {
         "width": 512,
@@ -308,11 +308,11 @@
         "batch_size": 8
       }
     },
-    "47": {
+    "67": {
       "class_type": "KSampler",
       "inputs": {
         "model": [
-          "45",
+          "65",
           0
         ],
         "seed": 42,
@@ -321,25 +321,25 @@
         "sampler_name": "dpmpp_2m",
         "scheduler": "karras",
         "positive": [
-          "41",
+          "61",
           0
         ],
         "negative": [
-          "41",
+          "61",
           1
         ],
         "latent_image": [
-          "46",
+          "66",
           0
         ],
         "denoise": 1.0
       }
     },
-    "48": {
+    "68": {
       "class_type": "VAEDecode",
       "inputs": {
         "samples": [
-          "47",
+          "67",
           0
         ],
         "vae": [
@@ -348,43 +348,43 @@
         ]
       }
     },
-    "49": {
+    "69": {
       "class_type": "LoadBackgroundRemovalModel",
       "inputs": {
         "bg_removal_name": "BiRefNet-general-epoch_244.safetensors"
       }
     },
-    "50": {
+    "70": {
       "class_type": "RemoveBackground",
       "inputs": {
         "bg_removal_model": [
-          "49",
+          "69",
           0
         ],
         "image": [
-          "48",
+          "68",
           0
         ]
       }
     },
-    "51": {
+    "71": {
       "class_type": "InvertMask",
       "inputs": {
         "mask": [
-          "50",
+          "70",
           0
         ]
       }
     },
-    "52": {
+    "72": {
       "class_type": "JoinImageWithAlpha",
       "inputs": {
         "image": [
-          "48",
+          "68",
           0
         ],
         "alpha": [
-          "51",
+          "71",
           0
         ]
       }
@@ -393,7 +393,7 @@
       "class_type": "SaveImage",
       "inputs": {
         "images": [
-          "52",
+          "72",
           0
         ],
         "filename_prefix": ".animation_work/example-production-animation/source"
