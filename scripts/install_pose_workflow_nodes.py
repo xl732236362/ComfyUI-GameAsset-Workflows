@@ -14,10 +14,19 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from game_asset_api.node_manifest import NODE_SPECS, NodeSpec, install_node_archive
+from game_asset_api.node_manifest import (
+    NODE_SPECS,
+    NodeSpec,
+    existing_node_install,
+    install_node_archive,
+)
 
 
 def install_one(spec: NodeSpec, root: Path, python: Path) -> Path:
+    destination = existing_node_install(spec, root)
+    if destination is not None:
+        return destination
+
     archive_dir = root / "temp" / "pose_workflow_node_archives"
     archive_dir.mkdir(parents=True, exist_ok=True)
     archive = archive_dir / f"{spec.name}-{spec.revision}.zip"

@@ -35,15 +35,24 @@ NODE_SPECS = (
 )
 
 
-def install_node_archive(spec: NodeSpec, root: Path, archive_path: Path) -> Path:
-    """Safely publish one pinned GitHub source archive below ``custom_nodes``."""
-    custom_nodes = Path(root) / "custom_nodes"
-    destination = custom_nodes / spec.name
+def existing_node_install(spec: NodeSpec, root: Path) -> Path | None:
+    """Return a verified install or reject an occupied destination."""
+    destination = Path(root) / "custom_nodes" / spec.name
     marker = destination / ".codex-source-revision"
     if marker.is_file() and marker.read_text(encoding="utf-8").strip() == spec.revision:
         return destination
     if destination.exists():
         raise FileExistsError(f"unmanaged custom node directory exists: {destination}")
+    return None
+
+
+def install_node_archive(spec: NodeSpec, root: Path, archive_path: Path) -> Path:
+    """Safely publish one pinned GitHub source archive below ``custom_nodes``."""
+    custom_nodes = Path(root) / "custom_nodes"
+    destination = custom_nodes / spec.name
+    existing = existing_node_install(spec, root)
+    if existing is not None:
+        return existing
 
     with ZipFile(archive_path) as archive:
         top_levels = _validated_top_levels(archive)
