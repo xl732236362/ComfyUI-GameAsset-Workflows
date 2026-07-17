@@ -57,6 +57,29 @@ async def test_animation_processor_publishes_a_complete_eight_frame_bundle(
 
 
 @pytest.mark.asyncio
+async def test_animation_processor_publishes_when_project_root_is_relative(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    root = Path("runtime")
+    request = _write_valid_runtime_inputs(root, frame_count=8)
+    records = _write_generated_records(root, "job-id", range(8))
+    processor = AnimationProcessor(root, FakeClient(_history(records)))
+
+    prepared = processor.validate_inputs(request, "job-id")
+    plan = processor.plan_motion(request, "job-id", prepared)
+    _, generated = await processor.generate(request, "job-id", prepared, plan)
+    stabilized = processor.stabilize(request, plan, generated)
+    composited = processor.composite(plan, stabilized, prepared)
+    staged = processor.export(request, "job-id", plan, stabilized, composited)
+    artifacts = processor.validate_and_publish(request, "job-id", staged)
+
+    final = root / "output" / "game_assets" / "job-id" / "production_action"
+    assert artifacts.metadata == final / "animation.json"
+    assert artifacts.metadata.is_file()
+
+
+@pytest.mark.asyncio
 async def test_animation_processor_sorts_comfy_output_records_before_stabilizing(
     tmp_path: Path,
 ) -> None:
@@ -124,6 +147,30 @@ def test_validate_and_publish_rejects_non_relative_metadata_artifacts(tmp_path: 
     staged.metadata.write_text(json.dumps(metadata), encoding="utf-8")
 
     with pytest.raises(ValueError, match="animation artifact path must be relative"):
+        processor.validate_and_publish(request, "job-id", staged)
+
+    assert not (
+        tmp_path / "output" / "game_assets" / "job-id" / "production_action"
+    ).exists()
+
+
+@pytest.mark.parametrize(
+    ("artifact", "content", "message"),
+    [
+        ("spritesheet", b"not a PNG", "production spritesheet is unreadable"),
+        ("preview", b"not a GIF", "production preview is unreadable"),
+        ("sprite_frames", b"", "production sprite frames are unreadable"),
+    ],
+)
+def test_validate_and_publish_rejects_corrupt_required_artifacts_before_rename(
+    tmp_path: Path, artifact: str, content: bytes, message: str
+) -> None:
+    request = _write_valid_runtime_inputs(tmp_path, frame_count=8)
+    processor = AnimationProcessor(tmp_path, FakeClient({}))
+    staged = _write_staged_bundle(processor, request, "job-id")
+    getattr(staged, artifact).write_bytes(content)
+
+    with pytest.raises(ValueError, match=message):
         processor.validate_and_publish(request, "job-id", staged)
 
     assert not (

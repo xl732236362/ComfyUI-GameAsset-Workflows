@@ -249,7 +249,7 @@ def _validate_artifacts(
     frame_count: int,
     sprite_size: int,
 ) -> None:
-    temporary = temporary.resolve(strict=True)
+    temporary.resolve(strict=True)
     expected_frames = tuple(
         temporary / "frames" / f"{index:03d}.png" for index in range(frame_count)
     )
@@ -311,13 +311,39 @@ def _validate_artifacts(
             names = _artifact_name(value)
         if names != expected:
             raise ValueError("animation metadata artifact names are invalid")
-    for path in (
-        expected_artifacts.spritesheet,
-        expected_artifacts.sprite_frames,
-        expected_artifacts.preview,
-    ):
-        if not path.is_file():
-            raise ValueError("production animation artifact is missing")
+    _verify_image(expected_artifacts.spritesheet, "spritesheet", "PNG", 1)
+    _verify_sprite_frames(expected_artifacts.sprite_frames)
+    _verify_image(expected_artifacts.preview, "preview", "GIF", frame_count)
+
+
+def _verify_image(
+    path: Path, label: str, expected_format: str, expected_frames: int
+) -> None:
+    try:
+        with Image.open(path) as image:
+            if image.format != expected_format:
+                raise ValueError(f"production {label} is unreadable")
+            image.verify()
+        with Image.open(path) as image:
+            if getattr(image, "n_frames", 1) != expected_frames:
+                raise ValueError(f"production {label} is unreadable")
+            for index in range(expected_frames):
+                image.seek(index)
+                image.load()
+    except ValueError:
+        raise
+    except (OSError, SyntaxError, Image.DecompressionBombError) as error:
+        raise ValueError(f"production {label} is unreadable") from error
+
+
+def _verify_sprite_frames(path: Path) -> None:
+    try:
+        if not path.read_text(encoding="utf-8").strip():
+            raise ValueError("production sprite frames are unreadable")
+    except ValueError:
+        raise
+    except (OSError, UnicodeDecodeError) as error:
+        raise ValueError("production sprite frames are unreadable") from error
 
 
 def _artifact_name(value: object) -> str:
