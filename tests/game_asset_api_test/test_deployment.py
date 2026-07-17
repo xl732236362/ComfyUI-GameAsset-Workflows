@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import importlib.util
+from io import BytesIO
 import json
 import os
 from pathlib import Path
+from urllib.error import HTTPError
 
 import pytest
 
+import game_asset_api.deployment as deployment_module
 from game_asset_api.deployment import (
     WORKFLOW_NAMES,
     publish_workflows,
@@ -27,8 +30,12 @@ EXPECTED_WORKFLOW_NAMES = (
 def _write_sources(directory: Path) -> dict[str, bytes]:
     directory.mkdir(parents=True)
     payloads = {}
-    for name in WORKFLOW_NAMES:
-        payload = (json.dumps({"prompt": {"name": name}}) + "\n").encode()
+    for index, name in enumerate(WORKFLOW_NAMES):
+        if index < 3:
+            workflow = {"prompt": {}}
+        else:
+            workflow = {"nodes": [{"id": 1, "type": "KSampler"}], "links": []}
+        payload = (json.dumps(workflow) + "\n").encode()
         (directory / name).write_bytes(payload)
         payloads[name] = payload
     return payloads
@@ -52,29 +59,90 @@ def _load_deploy_script():
     return module
 
 
+def _object_info_fixture() -> dict:
+    node_types = set()
+    for name in WORKFLOW_NAMES:
+        workflow = json.loads((ROOT / "workflows" / name).read_text(encoding="utf-8"))
+        if "prompt" in workflow:
+            node_types.update(node["class_type"] for node in workflow["prompt"].values())
+        else:
+            node_types.update(
+                node["type"]
+                for node in workflow["nodes"]
+                if node["type"] != "MarkdownNote"
+            )
+    object_info = {
+        node_type: {"input": {"required": {}, "optional": {}}}
+        for node_type in node_types
+    }
+
+    def choices(*values):
+        return [list(values), {"default": values[0]}]
+
+    required_choices = {
+        "CheckpointLoaderSimple": {
+            "ckpt_name": choices("sd_xl_base_1.0.safetensors")
+        },
+        "LoraLoader": {"lora_name": choices("pixel-art-xl.safetensors")},
+        "LoadBackgroundRemovalModel": {
+            "bg_removal_name": [
+                "COMBO",
+                {"options": ["BiRefNet-general-epoch_244.safetensors"]},
+            ]
+        },
+        "UNETLoader": {
+            "unet_name": choices("wan2.2_ti2v_5B_fp16.safetensors"),
+            "weight_dtype": choices("default"),
+        },
+        "CLIPLoader": {
+            "clip_name": choices("umt5_xxl_fp8_e4m3fn_scaled.safetensors"),
+            "type": choices("wan"),
+        },
+        "VAELoader": {"vae_name": choices("wan2.2_vae.safetensors")},
+        "IPAdapterModelLoader": {
+            "ipadapter_file": choices(
+                "ip-adapter-plus_sdxl_vit-h.safetensors"
+            )
+        },
+        "CLIPVisionLoader": {
+            "clip_name": choices(
+                "CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors"
+            )
+        },
+        "IPAdapterAdvanced": {
+            "weight_type": choices("style transfer"),
+            "combine_embeds": choices("concat"),
+            "embeds_scaling": choices("V only"),
+        },
+        "ControlNetLoader": {
+            "control_net_name": choices("OpenPoseXL2.safetensors")
+        },
+        "KSampler": {
+            "sampler_name": choices("dpmpp_2m", "uni_pc"),
+            "scheduler": choices("karras", "simple"),
+        },
+        "SaveVideo": {
+            "format": choices("mp4"),
+            "codec": choices("h264"),
+        },
+    }
+    for node_type, inputs in required_choices.items():
+        object_info[node_type]["input"]["required"].update(inputs)
+    object_info["CLIPLoader"]["input"]["optional"]["device"] = [
+        "COMBO",
+        {"options": ["default"]},
+    ]
+    return object_info
+
+
+def _validate_object_info(object_info: dict) -> None:
+    validator = getattr(deployment_module, "validate_object_info", None)
+    assert validator is not None, "validate_object_info must be implemented"
+    validator(object_info, ROOT / "workflows")
+
+
 def test_workflow_names_are_complete_and_ordered():
     assert WORKFLOW_NAMES == EXPECTED_WORKFLOW_NAMES
-
-
-def test_source_helper_writes_valid_prompt_objects(tmp_path):
-    source = tmp_path / "source"
-
-    payloads = _write_sources(source)
-
-    assert tuple(payloads) == WORKFLOW_NAMES
-    for name, payload in payloads.items():
-        parsed = json.loads(payload.decode("utf-8"))
-        assert isinstance(parsed, dict)
-        assert isinstance(parsed["prompt"], dict)
-        assert (source / name).read_bytes() == payload
-
-
-def test_comfy_root_helper_writes_required_files(tmp_path):
-    python = _valid_comfy_root(tmp_path)
-
-    assert (tmp_path / "main.py").is_file()
-    assert python == tmp_path / ".venv" / "Scripts" / "python.exe"
-    assert python.is_file()
 
 
 def test_publish_workflows_validates_and_copies_all_five(tmp_path):
@@ -154,6 +222,59 @@ def test_publish_workflows_rejects_missing_source_before_creating_destination(
     with pytest.raises(
         ValueError, match=rf"workflow JSON.*{missing_name}"
     ):
+        publish_workflows(source, comfy_root)
+
+    assert not destination.exists()
+
+
+@pytest.mark.parametrize(
+    ("invalid_name", "replacement"),
+    [
+        (
+            WORKFLOW_NAMES[0],
+            b'{"prompt":{"1":null}}',
+        ),
+        (
+            WORKFLOW_NAMES[3],
+            b'{"nodes":[null],"links":[]}',
+        ),
+        (
+            WORKFLOW_NAMES[0],
+            b'{"nodes":[{"id":1,"type":"KSampler"}],"links":[]}',
+        ),
+        (
+            WORKFLOW_NAMES[3],
+            b'{"prompt":{}}',
+        ),
+        (
+            WORKFLOW_NAMES[3],
+            b'{"nodes":[],"links":[]}',
+        ),
+        (
+            WORKFLOW_NAMES[0],
+            b'{"prompt":{"1":{"class_type":"KSampler","inputs":{"cfg":NaN}}}}',
+        ),
+    ],
+    ids=(
+        "invalid-api-node",
+        "invalid-ui-node",
+        "ui-shell-for-api-name",
+        "api-shell-for-ui-name",
+        "empty-ui-nodes",
+        "non-finite-number",
+    ),
+)
+def test_publish_workflows_rejects_filename_or_structure_mismatches_before_writes(
+    tmp_path, invalid_name, replacement
+):
+    source = tmp_path / "source"
+    _write_sources(source)
+    (source / invalid_name).write_bytes(replacement)
+    comfy_root = tmp_path / "ComfyUI"
+    _valid_comfy_root(comfy_root)
+    destination = comfy_root / "user" / "default" / "workflows"
+
+    with pytest.raises(ValueError, match=rf"workflow JSON.*{invalid_name}"):
         publish_workflows(source, comfy_root)
 
     assert not destination.exists()
@@ -249,6 +370,76 @@ def test_validate_comfy_root_expands_and_resolves_user_path(tmp_path, monkeypatc
     assert selected_python == python.resolve()
 
 
+def test_validate_object_info_reports_every_missing_node_for_empty_discovery():
+    expected_nodes = set(_object_info_fixture())
+
+    with pytest.raises(ValueError, match="object_info") as captured:
+        _validate_object_info({})
+
+    message = str(captured.value)
+    for node_type in expected_nodes:
+        assert node_type in message
+    assert "MarkdownNote" not in message
+
+
+def test_validate_object_info_rejects_a_missing_required_node():
+    object_info = _object_info_fixture()
+    object_info.pop("ControlNetApplyAdvanced")
+
+    with pytest.raises(ValueError, match="ControlNetApplyAdvanced"):
+        _validate_object_info(object_info)
+
+
+def test_validate_object_info_rejects_a_missing_loader_filename():
+    object_info = _object_info_fixture()
+    object_info["CheckpointLoaderSimple"]["input"]["required"]["ckpt_name"] = [
+        ["another.safetensors"]
+    ]
+
+    with pytest.raises(ValueError, match="CheckpointLoaderSimple.ckpt_name") as captured:
+        _validate_object_info(object_info)
+
+    assert "sd_xl_base_1.0.safetensors" in str(captured.value)
+
+
+def test_validate_object_info_rejects_missing_ipadapter_weight_type():
+    object_info = _object_info_fixture()
+    object_info["IPAdapterAdvanced"]["input"]["required"]["weight_type"] = [
+        ["linear"]
+    ]
+
+    with pytest.raises(ValueError, match="IPAdapterAdvanced.weight_type") as captured:
+        _validate_object_info(object_info)
+
+    assert "style transfer" in str(captured.value)
+
+
+@pytest.mark.parametrize(
+    ("node_type", "input_name", "missing_value"),
+    [
+        ("KSampler", "sampler_name", "dpmpp_2m"),
+        ("KSampler", "scheduler", "simple"),
+        ("SaveVideo", "format", "mp4"),
+        ("SaveVideo", "codec", "h264"),
+    ],
+)
+def test_validate_object_info_rejects_missing_runtime_options(
+    node_type, input_name, missing_value
+):
+    object_info = _object_info_fixture()
+    schema = object_info[node_type]["input"]["required"][input_name]
+    schema[0].remove(missing_value)
+
+    with pytest.raises(ValueError, match=rf"{node_type}.{input_name}") as captured:
+        _validate_object_info(object_info)
+
+    assert missing_value in str(captured.value)
+
+
+def test_validate_object_info_accepts_all_required_nodes_and_options():
+    assert _validate_object_info(_object_info_fixture()) is None
+
+
 def test_deploy_arguments_have_stable_defaults_and_skip_flags(tmp_path):
     module = _load_deploy_script()
 
@@ -299,11 +490,15 @@ def test_deploy_runs_all_operations_in_order_with_explicit_root_and_python(
 
     def fake_discover(base_url):
         events.append(("discover", base_url))
-        return {}
+        return {"discovered": {}}
+
+    def fake_validate(object_info, source):
+        events.append(("validate", object_info, source))
 
     monkeypatch.setattr(module, "publish_workflows", fake_publish)
     monkeypatch.setattr(module.subprocess, "run", fake_run)
     monkeypatch.setattr(module, "discover_object_info", fake_discover)
+    monkeypatch.setattr(module, "validate_object_info", fake_validate, raising=False)
     arguments = module.parse_arguments(
         ["--comfy-root", str(comfy_root), "--base-url", "http://localhost:9000/"]
     )
@@ -337,6 +532,11 @@ def test_deploy_runs_all_operations_in_order_with_explicit_root_and_python(
     )
     assert events[3] == ("discover", "http://localhost:9000/")
     assert events[4] == (
+        "validate",
+        {"discovered": {}},
+        ROOT / "workflows",
+    )
+    assert events[5] == (
         "run",
         [
             selected_python,
@@ -454,8 +654,8 @@ def test_discovery_requires_successful_object_response(monkeypatch):
 
 @pytest.mark.parametrize(
     ("status", "payload"),
-    [(500, b"{}"), (200, b"not json"), (200, b"[]")],
-    ids=("http-failure", "invalid-json", "non-object"),
+    [(200, b"not json"), (200, b"[]")],
+    ids=("invalid-json", "non-object"),
 )
 def test_discovery_rejects_failed_or_non_object_responses(
     monkeypatch, status, payload
@@ -467,6 +667,29 @@ def test_discovery_rejects_failed_or_non_object_responses(
 
     with pytest.raises(RuntimeError, match="object_info"):
         module.discover_object_info("http://localhost:9000")
+
+
+def test_discovery_closes_http_error_and_preserves_status_and_reason(monkeypatch):
+    module = _load_deploy_script()
+    error = HTTPError(
+        "http://localhost:9000/object_info",
+        503,
+        "Service Unavailable",
+        None,
+        BytesIO(b"unavailable"),
+    )
+    monkeypatch.setattr(
+        module,
+        "urlopen",
+        lambda url, timeout: (_ for _ in ()).throw(error),
+    )
+
+    with pytest.raises(RuntimeError, match="object_info") as captured:
+        module.discover_object_info("http://localhost:9000")
+
+    assert "503" in str(captured.value)
+    assert "Service Unavailable" in str(captured.value)
+    assert error.fp.closed
 
 
 def test_powershell_wrapper_is_the_stable_deployment_entrypoint():

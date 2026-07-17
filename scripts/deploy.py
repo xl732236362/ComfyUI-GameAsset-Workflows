@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+from urllib.error import HTTPError
 from urllib.request import urlopen
 
 
@@ -14,7 +15,11 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from game_asset_api.deployment import publish_workflows, validate_comfy_root
+from game_asset_api.deployment import (
+    publish_workflows,
+    validate_comfy_root,
+    validate_object_info,
+)
 
 
 def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
@@ -39,6 +44,13 @@ def discover_object_info(base_url: str) -> dict:
                     f"ComfyUI object_info request failed with HTTP {response.status}"
                 )
             payload = json.loads(response.read().decode("utf-8"))
+    except HTTPError as error:
+        code = error.code
+        reason = error.reason
+        error.close()
+        raise RuntimeError(
+            f"ComfyUI object_info request failed with HTTP {code}: {reason}"
+        ) from error
     except RuntimeError:
         raise
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
@@ -79,7 +91,8 @@ def deploy(arguments: argparse.Namespace) -> None:
             check=True,
         )
     if not arguments.skip_discovery:
-        discover_object_info(arguments.base_url)
+        object_info = discover_object_info(arguments.base_url)
+        validate_object_info(object_info, ROOT / "workflows")
     if not arguments.skip_smoke:
         reference = (comfy_root / "input" / "example.png").resolve()
         if not reference.is_file():
