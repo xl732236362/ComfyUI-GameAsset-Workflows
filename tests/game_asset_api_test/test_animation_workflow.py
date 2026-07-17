@@ -60,7 +60,7 @@ def test_production_animation_workflow_builds_one_batched_temporal_graph():
     graph = _graph()
 
     assert OUTPUT_NODE_ID == "73"
-    assert len(graph) == 37
+    assert len(graph) == 36
     assert sum(node["class_type"] == "LoadImage" for node in graph.values()) == 9
     assert sum(node["class_type"] == "ImageBatch" for node in graph.values()) == 7
     assert _single_node(graph, "CheckpointLoaderSimple")["inputs"] == {
@@ -159,14 +159,11 @@ def test_production_animation_workflow_builds_one_batched_temporal_graph():
     assert _single_node(graph, "LoadBackgroundRemovalModel")["inputs"] == {
         "bg_removal_name": "BiRefNet-general-epoch_244.safetensors"
     }
-    assert graph["71"] == {
-        "class_type": "InvertMask",
-        "inputs": {"mask": ["70", 0]},
-    }
     assert graph["72"] == {
         "class_type": "JoinImageWithAlpha",
-        "inputs": {"image": ["68", 0], "alpha": ["71", 0]},
+        "inputs": {"image": ["68", 0], "alpha": ["70", 0]},
     }
+    assert not any(node["class_type"] == "InvertMask" for node in graph.values())
     assert graph[OUTPUT_NODE_ID] == {
         "class_type": "SaveImage",
         "inputs": {

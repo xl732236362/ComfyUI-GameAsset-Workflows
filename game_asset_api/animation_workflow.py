@@ -210,13 +210,9 @@ def build_production_animation_workflow(
                 "class_type": "RemoveBackground",
                 "inputs": {"bg_removal_model": ["69", 0], "image": ["68", 0]},
             },
-            "71": {
-                "class_type": "InvertMask",
-                "inputs": {"mask": ["70", 0]},
-            },
             "72": {
                 "class_type": "JoinImageWithAlpha",
-                "inputs": {"image": ["68", 0], "alpha": ["71", 0]},
+                "inputs": {"image": ["68", 0], "alpha": ["70", 0]},
             },
             OUTPUT_NODE_ID: {
                 "class_type": "SaveImage",

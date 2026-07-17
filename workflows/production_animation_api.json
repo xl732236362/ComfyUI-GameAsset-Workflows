@@ -367,15 +367,6 @@
         ]
       }
     },
-    "71": {
-      "class_type": "InvertMask",
-      "inputs": {
-        "mask": [
-          "70",
-          0
-        ]
-      }
-    },
     "72": {
       "class_type": "JoinImageWithAlpha",
       "inputs": {
@@ -384,7 +375,7 @@
           0
         ],
         "alpha": [
-          "71",
+          "70",
           0
         ]
       }
