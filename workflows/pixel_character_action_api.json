@@ -1,0 +1,182 @@
+{
+  "prompt": {
+    "1": {
+      "class_type": "UNETLoader",
+      "inputs": {
+        "unet_name": "wan2.2_ti2v_5B_fp16.safetensors",
+        "weight_dtype": "default"
+      }
+    },
+    "2": {
+      "class_type": "CLIPLoader",
+      "inputs": {
+        "clip_name": "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+        "type": "wan",
+        "device": "default"
+      }
+    },
+    "3": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "wan2.2_vae.safetensors"
+      }
+    },
+    "4": {
+      "class_type": "ModelSamplingSD3",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "shift": 8
+      }
+    },
+    "5": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "text": "idle breathing animation, fixed side view, pixel art, crisp readable silhouettes, limited color palette, locked camera, consistent character identity",
+        "clip": [
+          "2",
+          0
+        ]
+      }
+    },
+    "6": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "text": "blurry, low quality, distorted, photorealistic, text, watermark",
+        "clip": [
+          "2",
+          0
+        ]
+      }
+    },
+    "7": {
+      "class_type": "LoadBackgroundRemovalModel",
+      "inputs": {
+        "bg_removal_name": "BiRefNet-general-epoch_244.safetensors"
+      }
+    },
+    "9": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "game_assets/example-job/reference.png"
+      }
+    },
+    "10": {
+      "class_type": "Wan22ImageToVideoLatent",
+      "inputs": {
+        "vae": [
+          "3",
+          0
+        ],
+        "width": 512,
+        "height": 512,
+        "length": 9,
+        "batch_size": 1,
+        "start_image": [
+          "9",
+          0
+        ]
+      }
+    },
+    "11": {
+      "class_type": "KSampler",
+      "inputs": {
+        "model": [
+          "4",
+          0
+        ],
+        "seed": 0,
+        "steps": 20,
+        "cfg": 5,
+        "sampler_name": "uni_pc",
+        "scheduler": "simple",
+        "positive": [
+          "5",
+          0
+        ],
+        "negative": [
+          "6",
+          0
+        ],
+        "latent_image": [
+          "10",
+          0
+        ],
+        "denoise": 1.0
+      }
+    },
+    "12": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "11",
+          0
+        ],
+        "vae": [
+          "3",
+          0
+        ]
+      }
+    },
+    "13": {
+      "class_type": "RemoveBackground",
+      "inputs": {
+        "bg_removal_model": [
+          "7",
+          0
+        ],
+        "image": [
+          "12",
+          0
+        ]
+      }
+    },
+    "14": {
+      "class_type": "JoinImageWithAlpha",
+      "inputs": {
+        "image": [
+          "12",
+          0
+        ],
+        "alpha": [
+          "17",
+          0
+        ]
+      }
+    },
+    "15": {
+      "class_type": "ImageScale",
+      "inputs": {
+        "image": [
+          "14",
+          0
+        ],
+        "upscale_method": "nearest-exact",
+        "width": 128,
+        "height": 128,
+        "crop": "disabled"
+      }
+    },
+    "16": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "images": [
+          "15",
+          0
+        ],
+        "filename_prefix": "game_assets/example-job/wan_frames"
+      }
+    },
+    "17": {
+      "class_type": "InvertMask",
+      "inputs": {
+        "mask": [
+          "13",
+          0
+        ]
+      }
+    }
+  }
+}
