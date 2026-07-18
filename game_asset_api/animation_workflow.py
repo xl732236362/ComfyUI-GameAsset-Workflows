@@ -10,12 +10,6 @@ from game_asset_api.prompting import NEGATIVE
 
 Workflow = dict[str, dict[str, object]]
 OUTPUT_NODE_ID = "73"
-_CONTEXT_OPTIONS = {
-    2: (2, 0),
-    8: (8, 0),
-    12: (8, 2),
-    16: (8, 2),
-}
 
 
 def build_production_animation_workflow(
@@ -30,7 +24,6 @@ def build_production_animation_workflow(
         raise ValueError(
             f"pose_images must contain exactly {request.frame_count} images"
         )
-    context_length, context_overlap = _context_options(request.frame_count)
     positive_prompt = ", ".join(
         (
             request.character_prompt,
@@ -38,13 +31,15 @@ def build_production_animation_workflow(
             "locked camera",
             "consistent identity",
             "empty hands",
+            "both hands empty",
+            "single character",
             "pixel-art",
         )
     )
     negative_prompt = ", ".join(
         (
             NEGATIVE,
-            "sword, weapon, scabbard",
+            "sword, weapon, scabbard, staff, cane, polearm, wand, held object, multiple characters, character sheet, collage, grid, panels",
             "camera drift",
             "duplicate limbs",
             "cropped character",
@@ -145,46 +140,18 @@ def build_production_animation_workflow(
                     "end_percent": 1.0,
                 },
             },
-            "62": {
-                "class_type": "ADE_LoadAnimateDiffModel",
-                "inputs": {"model_name": "mm_sdxl_v10_beta.safetensors"},
-            },
-            "63": {
-                "class_type": "ADE_ApplyAnimateDiffModelSimple",
-                "inputs": {"motion_model": ["62", 0]},
-            },
-            "64": {
-                "class_type": "ADE_StandardUniformContextOptions",
-                "inputs": {
-                    "context_length": context_length,
-                    "context_overlap": context_overlap,
-                    "context_stride": 1,
-                    "context_schedule": "uniform",
-                    "closed_loop": False,
-                    "fuse_method": "flat",
-                },
-            },
-            "65": {
-                "class_type": "ADE_UseEvolvedSampling",
-                "inputs": {
-                    "model": ["6", 0],
-                    "m_models": ["63", 0],
-                    "beta_schedule": "autoselect",
-                    "context_options": ["64", 0],
-                },
-            },
             "66": {
                 "class_type": "EmptyLatentImage",
                 "inputs": {
-                    "width": 512,
-                    "height": 512,
+                    "width": 1024,
+                    "height": 1024,
                     "batch_size": request.frame_count,
                 },
             },
             "67": {
                 "class_type": "KSampler",
                 "inputs": {
-                    "model": ["65", 0],
+                    "model": ["6", 0],
                     "seed": request.seed or 0,
                     "steps": 30,
                     "cfg": 7,
@@ -210,9 +177,13 @@ def build_production_animation_workflow(
                 "class_type": "RemoveBackground",
                 "inputs": {"bg_removal_model": ["69", 0], "image": ["68", 0]},
             },
+            "71": {
+                "class_type": "InvertMask",
+                "inputs": {"mask": ["70", 0]},
+            },
             "72": {
                 "class_type": "JoinImageWithAlpha",
-                "inputs": {"image": ["68", 0], "alpha": ["70", 0]},
+                "inputs": {"image": ["68", 0], "alpha": ["71", 0]},
             },
             OUTPUT_NODE_ID: {
                 "class_type": "SaveImage",
@@ -224,10 +195,3 @@ def build_production_animation_workflow(
         }
     )
     return graph
-
-
-def _context_options(frame_count: int) -> tuple[int, int]:
-    try:
-        return _CONTEXT_OPTIONS[frame_count]
-    except KeyError:
-        raise ValueError("frame_count must be one of 2, 8, 12, 16") from None

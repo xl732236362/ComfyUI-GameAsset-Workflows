@@ -611,13 +611,13 @@ def test_readme_documents_production_animation_and_godot_export():
         "animation.json",
         "GODOT_BIN",
         "curl 7.71",
-        "ComfyUI-AnimateDiff-Evolved",
-        "animatediff-motion-adapter-sdxl-beta",
         "res://game_assets/",
         "2-frame preflight",
         "stage-specific",
     ):
         assert text in readme
+    assert "ComfyUI-AnimateDiff-Evolved" not in readme
+    assert "animatediff-motion-adapter-sdxl-beta" not in readme
 
 
 def test_main_rejects_invalid_port_before_starting_server(monkeypatch):

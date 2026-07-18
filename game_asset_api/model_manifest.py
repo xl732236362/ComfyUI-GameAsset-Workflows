@@ -72,20 +72,6 @@ MODEL_SPECS = (
         size=2_528_373_448,
         sha256="6ca9667da1ca9e0b0f75e46bb030f7e011f44f86cbfb8d5a36590fcd7507b030",
     ),
-    ModelSpec(
-        filename="mm_sdxl_v10_beta.safetensors",
-        relative_dir="animatediff_models",
-        url=(
-            "https://hf-mirror.com/guoyww/animatediff-motion-adapter-sdxl-beta/resolve/"
-            "26c864717b4d4b002bb48ae6c9d6bb431548c6cb/diffusion_pytorch_model.fp16.safetensors"
-        ),
-        size=474_328_896,
-        sha256="24c3c5f48006ce2ce7b06188622865c620b2d33db23b1af671cc1f21716b5826",
-        fallback_urls=(
-            "https://huggingface.co/guoyww/animatediff-motion-adapter-sdxl-beta/resolve/"
-            "26c864717b4d4b002bb48ae6c9d6bb431548c6cb/diffusion_pytorch_model.fp16.safetensors",
-        ),
-    ),
 )
 
 

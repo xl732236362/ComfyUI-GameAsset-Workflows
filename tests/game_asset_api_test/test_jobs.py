@@ -160,12 +160,15 @@ class _FakeAnimationProcessor:
         self._stage("plan_motion", job_id)
         return "plan"
 
-    async def generate(self, request, job_id, prepared, plan):
+    async def generate(self, request, job_id, prepared, plan, on_prompt=None):
         self._stage("generate", job_id)
         self.active_generations += 1
         self.max_active_generations = max(self.max_active_generations, self.active_generations)
         await asyncio.sleep(0)
         self.active_generations -= 1
+        if on_prompt is not None:
+            on_prompt(0, "animation-prompt-000")
+            on_prompt(1, "animation-prompt-001")
         return "animation-prompt", "generated"
 
     def stabilize(self, request, plan, generated):
@@ -221,7 +224,10 @@ async def test_job_runner_processes_animation_stages_in_order_and_serializes_gen
         ("validate_and_publish", "validating_outputs"),
     ] * 2
     completed = runner.store.read(first.id)
-    assert completed.prompt_ids == {"animation": "animation-prompt"}
+    assert completed.prompt_ids == {
+        "animation_000": "animation-prompt-000",
+        "animation_001": "animation-prompt-001",
+    }
     assert completed.outputs == {
         "frame_000": f"/assets/{first.id}/production_action/frames/000.png",
         "spritesheet": f"/assets/{first.id}/production_action/spritesheet.png",

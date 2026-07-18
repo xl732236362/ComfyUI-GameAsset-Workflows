@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import json
 import os
 from pathlib import Path, PurePosixPath, PureWindowsPath
@@ -90,35 +90,45 @@ class AnimationProcessor:
         job_id: str,
         prepared: PreparedAnimation,
         plan: MotionPlan,
+        on_prompt: Callable[[int, str], None] | None = None,
     ) -> tuple[str, tuple[Path, ...]]:
-        """Submit one batched graph and resolve its returned source frames."""
+        """Submit one pose-controlled graph per planned source frame."""
         job_id = _job_id(job_id)
         pose_paths = tuple(sorted(prepared.pose_directory.glob("*.png")))
-        graph = build_production_animation_workflow(
-            request,
-            job_id,
-            reference_image=_input_relative(self.input_root, prepared.reference),
-            pose_images=tuple(
-                _input_relative(self.input_root, path) for path in pose_paths
-            ),
-        )
-        prompt_id = await self.client.submit(graph)
-        history = await self.client.wait_for_prompt(prompt_id, self.timeout_seconds)
-        records = sorted(
-            image_records(history, OUTPUT_NODE_ID), key=_record_sort_key
-        )
-        if len(records) != request.frame_count:
-            raise ValueError("generated frame count must equal requested frame_count")
-        paths = await _wait_for_output_images(
-            self.output_root,
-            records,
-            timeout_seconds=min(
-                self.timeout_seconds, OUTPUT_IMAGE_READY_TIMEOUT_SECONDS
-            ),
-        )
+        if len(pose_paths) != len(plan.frames):
+            raise ValueError("generated pose count must equal motion frame count")
+        single_frame_request = replace(request, frame_count=1)
+        reference_image = _input_relative(self.input_root, prepared.reference)
+        prompt_ids = []
+        paths = []
+        for index, pose_path in enumerate(pose_paths):
+            graph = build_production_animation_workflow(
+                single_frame_request,
+                job_id,
+                reference_image=reference_image,
+                pose_images=(_input_relative(self.input_root, pose_path),),
+            )
+            prompt_id = await self.client.submit(graph)
+            if on_prompt is not None:
+                on_prompt(index, prompt_id)
+            history = await self.client.wait_for_prompt(prompt_id, self.timeout_seconds)
+            records = sorted(
+                image_records(history, OUTPUT_NODE_ID), key=_record_sort_key
+            )
+            if len(records) != 1:
+                raise ValueError("generated frame count must equal one")
+            generated = await _wait_for_output_images(
+                self.output_root,
+                records,
+                timeout_seconds=min(
+                    self.timeout_seconds, OUTPUT_IMAGE_READY_TIMEOUT_SECONDS
+                ),
+            )
+            prompt_ids.append(prompt_id)
+            paths.append(generated[0])
         if len(paths) != len(plan.frames):
             raise ValueError("generated frame count must equal motion frame count")
-        return prompt_id, paths
+        return prompt_ids[0], tuple(paths)
 
     def stabilize(
         self,

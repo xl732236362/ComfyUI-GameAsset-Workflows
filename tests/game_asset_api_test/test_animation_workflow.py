@@ -1,4 +1,5 @@
 import json
+from dataclasses import replace
 from pathlib import Path
 import shutil
 import subprocess
@@ -56,11 +57,11 @@ def _normalized_json(value):
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
-def test_production_animation_workflow_builds_one_batched_temporal_graph():
+def test_production_animation_workflow_builds_one_batched_pose_graph():
     graph = _graph()
 
     assert OUTPUT_NODE_ID == "73"
-    assert len(graph) == 36
+    assert len(graph) == 33
     assert sum(node["class_type"] == "LoadImage" for node in graph.values()) == 9
     assert sum(node["class_type"] == "ImageBatch" for node in graph.values()) == 7
     assert _single_node(graph, "CheckpointLoaderSimple")["inputs"] == {
@@ -111,41 +112,16 @@ def test_production_animation_workflow_builds_one_batched_temporal_graph():
     assert graph["61"]["inputs"]["image"] == ["46", 0]
     assert graph["61"]["inputs"]["strength"] == 0.9
     assert _single_node(graph, "EmptyLatentImage")["inputs"] == {
-        "width": 512,
-        "height": 512,
+        "width": 1024,
+        "height": 1024,
         "batch_size": 8,
     }
 
-    assert graph["62"] == {
-        "class_type": "ADE_LoadAnimateDiffModel",
-        "inputs": {"model_name": "mm_sdxl_v10_beta.safetensors"},
-    }
-    assert graph["63"] == {
-        "class_type": "ADE_ApplyAnimateDiffModelSimple",
-        "inputs": {"motion_model": ["62", 0]},
-    }
-    assert graph["64"]["class_type"] == "ADE_StandardUniformContextOptions"
-    assert graph["64"]["inputs"] == {
-        "context_length": 8,
-        "context_overlap": 0,
-        "context_stride": 1,
-        "context_schedule": "uniform",
-        "closed_loop": False,
-        "fuse_method": "flat",
-    }
-    assert graph["65"] == {
-        "class_type": "ADE_UseEvolvedSampling",
-        "inputs": {
-            "model": ["6", 0],
-            "beta_schedule": "autoselect",
-            "m_models": ["63", 0],
-            "context_options": ["64", 0],
-        },
-    }
+    assert not any(node["class_type"].startswith("ADE_") for node in graph.values())
 
     sampler = _single_node(graph, "KSampler")
     assert sampler["inputs"] == {
-        "model": ["65", 0],
+        "model": ["6", 0],
         "seed": 42,
         "steps": 30,
         "cfg": 7,
@@ -159,11 +135,14 @@ def test_production_animation_workflow_builds_one_batched_temporal_graph():
     assert _single_node(graph, "LoadBackgroundRemovalModel")["inputs"] == {
         "bg_removal_name": "BiRefNet-general-epoch_244.safetensors"
     }
+    assert graph["71"] == {
+        "class_type": "InvertMask",
+        "inputs": {"mask": ["70", 0]},
+    }
     assert graph["72"] == {
         "class_type": "JoinImageWithAlpha",
-        "inputs": {"image": ["68", 0], "alpha": ["70", 0]},
+        "inputs": {"image": ["68", 0], "alpha": ["71", 0]},
     }
-    assert not any(node["class_type"] == "InvertMask" for node in graph.values())
     assert graph[OUTPUT_NODE_ID] == {
         "class_type": "SaveImage",
         "inputs": {
@@ -185,6 +164,8 @@ def test_production_animation_workflow_prompts_for_an_unarmed_character():
         "locked camera",
         "consistent identity",
         "empty hands",
+        "both hands empty",
+        "single character",
         "pixel-art",
     ):
         assert prompt_fragment in positive
@@ -195,6 +176,16 @@ def test_production_animation_workflow_prompts_for_an_unarmed_character():
         "sword",
         "weapon",
         "scabbard",
+        "staff",
+        "cane",
+        "polearm",
+        "wand",
+        "held object",
+        "multiple characters",
+        "character sheet",
+        "collage",
+        "grid",
+        "panels",
         "camera drift",
         "duplicate limbs",
         "cropped character",
@@ -214,29 +205,23 @@ def test_production_animation_workflow_rejects_pose_count_mismatch():
         )
 
 
-def test_production_animation_workflow_uses_two_frame_preflight_context():
+def test_production_animation_workflow_uses_two_frame_preflight_batch():
     graph = _graph(frame_count=2, seed=None)
 
-    assert graph["64"]["inputs"]["context_length"] == 2
-    assert graph["64"]["inputs"]["context_overlap"] == 0
-    assert graph["64"]["inputs"]["context_stride"] == 1
+    assert not any(node["class_type"].startswith("ADE_") for node in graph.values())
     assert graph["61"]["inputs"]["image"] == ["40", 0]
     assert _single_node(graph, "EmptyLatentImage")["inputs"]["batch_size"] == 2
     assert _single_node(graph, "KSampler")["inputs"]["seed"] == 0
 
 
 @pytest.mark.parametrize(
-    ("frame_count", "context_length", "context_overlap"),
-    [(2, 2, 0), (8, 8, 0), (12, 8, 2), (16, 8, 2)],
+    "frame_count",
+    (2, 8, 12, 16),
 )
-def test_production_animation_workflow_selects_context_for_each_supported_batch(
-    frame_count, context_length, context_overlap
-):
+def test_production_animation_workflow_batches_each_supported_frame_count(frame_count):
     graph = _graph(frame_count=frame_count)
 
-    assert graph["64"]["inputs"]["context_length"] == context_length
-    assert graph["64"]["inputs"]["context_overlap"] == context_overlap
-    assert graph["64"]["inputs"]["context_stride"] == 1
+    assert not any(node["class_type"].startswith("ADE_") for node in graph.values())
     assert sum(node["class_type"] == "ImageBatch" for node in graph.values()) == (
         frame_count - 1
     )
@@ -254,22 +239,25 @@ def test_animation_workflow_exporter_rebuilds_the_committed_json_artifact(tmp_pa
 
     generated_path = temporary_root / "workflows" / "production_animation_api.json"
     generated = json.loads(generated_path.read_text(encoding="utf-8"))
-    request = parse_animation_request(
-        {
-            "asset_name": "cultivator_attack",
-            "character_image": "characters/cultivator.png",
-            "character_prompt": "white-robed cultivator",
-            "weapon": "weapons/sword.json",
-            "action": "sword_attack",
-            "frame_count": 8,
-            "seed": 42,
-        }
+    request = replace(
+        parse_animation_request(
+            {
+                "asset_name": "cultivator_attack",
+                "character_image": "characters/cultivator.png",
+                "character_prompt": "white-robed cultivator",
+                "weapon": "weapons/sword.json",
+                "action": "sword_attack",
+                "frame_count": 8,
+                "seed": 42,
+            }
+        ),
+        frame_count=1,
     )
     expected_graph = build_production_animation_workflow(
         request,
         "example-production-animation",
         reference_image="game_assets/example-production-animation/reference.png",
-        pose_images=_pose_images("example-production-animation", 8),
+        pose_images=_pose_images("example-production-animation", 1),
     )
     committed = json.loads(
         (ROOT / "workflows" / "production_animation_api.json").read_text(

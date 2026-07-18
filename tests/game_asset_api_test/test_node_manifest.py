@@ -8,13 +8,8 @@ import pytest
 from game_asset_api.node_manifest import NODE_SPECS, NodeSpec, install_node_archive
 
 
-def test_node_manifest_pins_animatediff_evolved():
-    spec = next(
-        spec for spec in NODE_SPECS if spec.name == "ComfyUI-AnimateDiff-Evolved"
-    )
-
-    assert spec.revision == "d8d163cd90b1111f6227495e3467633676fbb346"
-    assert spec.archive_url.endswith(spec.revision)
+def test_node_manifest_excludes_animatediff_evolved():
+    assert "ComfyUI-AnimateDiff-Evolved" not in {spec.name for spec in NODE_SPECS}
 
 
 def _load_node_installer():

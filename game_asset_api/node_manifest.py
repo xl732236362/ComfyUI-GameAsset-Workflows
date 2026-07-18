@@ -32,15 +32,6 @@ NODE_SPECS = (
         ),
         revision="a0f451a5113cf9becb0847b92884cb10cbdec0ef",
     ),
-    NodeSpec(
-        name="ComfyUI-AnimateDiff-Evolved",
-        archive_url=(
-            "https://api.github.com/repos/Kosinkadink/"
-            "ComfyUI-AnimateDiff-Evolved/zipball/"
-            "d8d163cd90b1111f6227495e3467633676fbb346"
-        ),
-        revision="d8d163cd90b1111f6227495e3467633676fbb346",
-    ),
 )
 
 

@@ -10,6 +10,9 @@ from PIL import Image
 from game_asset_api.animation_motion import MotionFrame
 
 
+_ANCHOR_ALPHA_THRESHOLD = 16
+
+
 @dataclass(frozen=True, slots=True)
 class StabilizedSequence:
     frames: tuple[Image.Image, ...]
@@ -37,7 +40,9 @@ def stabilize_character_frames(
             raise ValueError("generated frames must have the same dimensions")
 
         alpha = frame.getchannel("A")
-        bounds = alpha.getbbox()
+        bounds = alpha.point(
+            lambda value: 255 if value >= _ANCHOR_ALPHA_THRESHOLD else 0
+        ).getbbox()
         if bounds is None:
             raise ValueError("generated frame has no foreground")
         if alpha.getextrema()[0] != 0:

@@ -54,26 +54,10 @@ def test_manifest_contains_verified_model_specs():
     assert "CLIP-ViT-bigG-14-laion2B-39B-b160k.safetensors" not in specs_by_filename
 
 
-def test_manifest_contains_verified_sdxl_motion_adapter():
-    spec = next(
-        spec
-        for spec in MODEL_SPECS
-        if spec.filename == "mm_sdxl_v10_beta.safetensors"
-    )
-
-    assert spec.relative_dir == "animatediff_models"
-    assert spec.size == 474_328_896
-    assert (
-        spec.sha256
-        == "24c3c5f48006ce2ce7b06188622865c620b2d33db23b1af671cc1f21716b5826"
-    )
-    assert (
-        spec.url
-        == "https://hf-mirror.com/guoyww/animatediff-motion-adapter-sdxl-beta/resolve/26c864717b4d4b002bb48ae6c9d6bb431548c6cb/diffusion_pytorch_model.fp16.safetensors"
-    )
-    assert spec.fallback_urls == (
-        "https://huggingface.co/guoyww/animatediff-motion-adapter-sdxl-beta/resolve/26c864717b4d4b002bb48ae6c9d6bb431548c6cb/diffusion_pytorch_model.fp16.safetensors",
-    )
+def test_manifest_excludes_the_unusable_sdxl_motion_adapter():
+    assert "mm_sdxl_v10_beta.safetensors" not in {
+        spec.filename for spec in MODEL_SPECS
+    }
 
 
 def test_model_spec_is_immutable_and_builds_destination(tmp_path):

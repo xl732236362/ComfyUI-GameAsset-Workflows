@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timezone
 from enum import Enum
@@ -107,7 +107,12 @@ class AnimationProcessorProtocol(Protocol):
     ) -> object: ...
 
     async def generate(
-        self, request: AnimationRequest, job_id: str, prepared: object, plan: object
+        self,
+        request: AnimationRequest,
+        job_id: str,
+        prepared: object,
+        plan: object,
+        on_prompt: Callable[[int, str], None] | None = None,
     ) -> tuple[str, object]: ...
 
     def stabilize(
@@ -374,8 +379,15 @@ class JobRunner:
         job = self.store.transition(job.id, JobStatus.MOTION_PLANNING)
         plan = processor.plan_motion(request, job.id, prepared)
         job = self.store.transition(job.id, JobStatus.TEMPORAL_GENERATION)
-        prompt_id, generated = await processor.generate(request, job.id, prepared, plan)
-        job = self.store.record_prompt_id(job.id, "animation", prompt_id)
+        _, generated = await processor.generate(
+            request,
+            job.id,
+            prepared,
+            plan,
+            on_prompt=lambda index, prompt_id: self.store.record_prompt_id(
+                job.id, f"animation_{index:03d}", prompt_id
+            ),
+        )
         job = self.store.transition(job.id, JobStatus.CHARACTER_STABILIZATION)
         stabilized = processor.stabilize(request, plan, generated)
         job = self.store.transition(job.id, JobStatus.WEAPON_COMPOSITE)

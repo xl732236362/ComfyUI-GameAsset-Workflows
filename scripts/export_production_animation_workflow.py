@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 import sys
 
@@ -21,16 +22,19 @@ JOB_ID = "example-production-animation"
 
 def main() -> None:
     """Write the representative prompt-wrapped workflow artifact."""
-    request = parse_animation_request(
-        {
-            "asset_name": "cultivator_attack",
-            "character_image": "characters/cultivator.png",
-            "character_prompt": "white-robed cultivator",
-            "weapon": "weapons/sword.json",
-            "action": "sword_attack",
-            "frame_count": 8,
-            "seed": 42,
-        }
+    request = replace(
+        parse_animation_request(
+            {
+                "asset_name": "cultivator_attack",
+                "character_image": "characters/cultivator.png",
+                "character_prompt": "white-robed cultivator",
+                "weapon": "weapons/sword.json",
+                "action": "sword_attack",
+                "frame_count": 8,
+                "seed": 42,
+            }
+        ),
+        frame_count=1,
     )
     pose_images = tuple(
         f"game_assets/{JOB_ID}/poses/{index:03d}.png"

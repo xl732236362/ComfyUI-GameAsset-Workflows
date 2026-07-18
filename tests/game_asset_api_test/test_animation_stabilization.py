@@ -126,6 +126,21 @@ def test_stabilization_rejects_aligned_foreground_that_would_clip(tmp_path):
         )
 
 
+def test_stabilization_ignores_low_alpha_background_when_finding_the_anchor(tmp_path):
+    source = tmp_path / "frame.png"
+    image = Image.new("RGBA", (16, 16), (0, 0, 0, 1))
+    image.putpixel((0, 0), (0, 0, 0, 0))
+    for y in range(2, 14):
+        for x in range(4, 12):
+            image.putpixel((x, y), (20, 120, 220, 255))
+    image.save(source)
+
+    result = stabilize_character_frames((source,), (_motion(),), sprite_size=64)
+
+    assert result.translations == ((0, 0),)
+    assert result.frames[0].getpixel((16, 8)) == (20, 120, 220, 255)
+
+
 def test_stabilization_preserves_partial_alpha_after_alignment(tmp_path):
     source = tmp_path / "frame.png"
     _write_frame(source)

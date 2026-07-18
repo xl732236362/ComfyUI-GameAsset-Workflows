@@ -8,8 +8,10 @@
 - Status: **technical deployment passed**. Repository separation, dependency
   verification, workflow deployment, live API execution, alpha handling, and
   smoke generation passed.
-- Visual status: **demo-only sword continuity**. The eight-frame result is not
-  production-ready action animation.
+- Visual status: the historic eight-frame pose result remains a demonstration
+  artifact. The later production pipeline uses sequential frame generation and
+  a fixed-source weapon composite; its separate 12- and 16-frame validation is
+  recorded below.
 
 The standalone implementation commit audited below is
 `b8babd3a3f5d9343e5a36f48412a8da5e463134a`. The documentation commit that
@@ -177,7 +179,31 @@ corners, and non-empty foreground.
 | --- | ---: | --- | --- |
 | `output/game_assets/deployment-smoke/pose_action/frames/000.png` | `5723` | `2ee824e804a56e9f77544ecf79700b396950b555953830469436237079adefd8` | `64x64` |
 | `output/game_assets/deployment-smoke/pose_action/frames/001.png` | `5332` | `0a37cb13134fab01dee4d462a41d452c8efd33669b5f49e21694e5e5b7f61cd8` | `64x64` |
-| `output/game_assets/deployment-smoke/pose_action/spritesheet.png` | `10825` | `1ce0f1f2e7fe9c461159e0142a05c6b41c06ce0f6d9202d5cb4e63f3097dcc9b` | `128x64` |
+| `output/game_assets/deployment-smoke/pose_action/spritesheet.png` | `10825` | `1ce0f1f2e7fe9c461159e0142a05c6b41c06ce0f6d9202d5cb4e63f3097dcc9b` | `128x64` | 
+
+## Production Animation Revalidation
+
+On `2026-07-18`, the production worktree generated the following sequential
+sword-attack bundles against the local ComfyUI service. The pipeline submits
+one pose per ComfyUI request, rejects batch-grid results, composites the sword
+from one fixed source image, and exports canonical frame durations to the GIF,
+metadata, and Godot resource.
+
+| Artifact | Frames | Canvas / grid | Godot validation |
+| --- | ---: | --- | --- |
+| `output/game_assets/deployment-smoke/production_action` | 2 | `64x64`, `2x1` | Not required for the smoke run |
+| `output/game_assets/cultivator-sword-attack-8f-sequential/production_action` | 8 | `128x128`, `4x2` | Not run |
+| `output/game_assets/cultivator-sword-attack-12f-sequential/production_action` | 12 | `128x128`, `4x3` | Passed |
+| `output/game_assets/cultivator-sword-attack-16f-sequential/production_action` | 16 | `128x128`, `4x4` | Passed |
+
+Both Godot checks used
+`D:\Software\Godot_v4.7-stable_mono_win64\Godot_v4.7-stable_mono_win64_console.exe`
+(`4.7.stable.mono.official.5b4e0cb0f`) with
+`scripts/validate_godot_export.py`. Each check created a temporary Godot
+project, imported the PNG assets headlessly, and loaded `sprite_frames.tres` as
+a `SpriteFrames` resource containing the `sword_attack` animation. The 16-frame
+metadata records sixteen `128x128` atlas regions, a single weapon
+`source_digest` across every frame, and the `hit` event on frame 7.
 
 ## Preservation And Security
 
@@ -220,9 +246,10 @@ corners, and non-empty foreground.
 - Current service output is not redirected to a current log file. Live endpoint
   and history checks passed, but persistent runtime log capture would improve
   later incident diagnosis.
-- Sword/hand/face continuity remains the material visual limitation. It does
-  not invalidate the technical deployment, but it prevents a production-ready
-  action-continuity claim.
+- The historic eight-frame pose audit still documents the limits of
+  independently generated body art. The production workflow removes the
+  batch-grid and weapon-geometry failures from that path, but final artistic
+  approval remains a gameplay review rather than an automated guarantee.
 
 ## Reproduce Key Checks
 

@@ -46,18 +46,10 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 ### Model Coverage
 
-The six workflows reference ten loader files. The seven entries in
+The six workflows reference nine loader files. The six entries in
 `game_asset_api\model_manifest.py` are managed models: deployment downloads
 missing files from their pinned mirror URLs and verifies byte size and SHA-256
 before publishing them.
-
-Production animation adds [ComfyUI-AnimateDiff-Evolved](https://github.com/Kosinkadink/ComfyUI-AnimateDiff-Evolved)
-at revision `d8d163cd90b1111f6227495e3467633676fbb346` and the
-`guoyww/animatediff-motion-adapter-sdxl-beta` motion adapter. The adapter is
-installed as `models/animatediff_models/mm_sdxl_v10_beta.safetensors`; its
-primary source is `hf-mirror.com` and its explicit upstream fallback is
-Hugging Face. Both sources use the same resumable partial file and the final
-file is promoted only after the pinned SHA-256 verifies.
 
 The following three Wan files are not in `MODEL_SPECS` and must already be
 installed under the ComfyUI root:
@@ -76,9 +68,9 @@ hash-check them.
 
 ### Already-Provisioned Deployment
 
-When all ten model files and pinned custom nodes are already installed, and
-the running ComfyUI server has loaded those nodes, ensure
-`E:\ComfyUI\input\example.png` exists and run the supported entry point:
+When all nine model files and pinned custom nodes are already installed, and
+the running ComfyUI server has loaded those nodes, run the supported entry
+point:
 
 ```powershell
 Set-Location 'E:\ComfyUI-GameAsset-Workflows'
@@ -88,9 +80,9 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 Deployment validates the ComfyUI root, publishes the six JSON files from
 `workflows` to `E:\ComfyUI\user\default\workflows`, installs or verifies the
-pinned custom nodes and seven managed models, checks every workflow node and
-configured loader option against the live `/object_info` response, and runs a
-two-frame, 64-pixel smoke action using `input\example.png`.
+pinned custom nodes and six managed models, checks every workflow node and
+configured loader option against the live `/object_info` response, and writes
+an unarmed pixel cultivator before running a two-frame, 64-pixel smoke action.
 
 The published files are `pixel_character_design_api.json`,
 `pixel_character_action_api.json`, `pose_controlled_pixel_action_api.json`,
@@ -115,7 +107,7 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 ```
 
 This stage publishes the workflows, installs the pinned custom nodes and their
-requirements, and downloads or verifies the seven managed models. Its skipped
+requirements, and downloads or verifies the six managed models. Its skipped
 discovery and smoke stages mean it is not a complete deployment validation.
 
 Start or restart ComfyUI normally, wait until `http://127.0.0.1:8188` is
@@ -399,8 +391,8 @@ content-aware secret scanner and manually review the complete staged diff.
 - Server or `/object_info` errors: start ComfyUI at the `--base-url`, wait for
   startup to finish, and inspect its console. If nodes were just installed,
   restart ComfyUI and rerun deployment so discovery sees them.
-- Smoke reference errors: create or select a real
-  `E:\ComfyUI\input\example.png` before running deployment.
+- Smoke failures: inspect the published `deployment-smoke` bundle and the
+  ComfyUI console for the failing generation or export stage.
 - Download, size, or hash failures: check network and mirror access.
   Manifest-managed model downloads use resumable `.part` files and node
   archives use `.zip.part`; invalid partials are never promoted over verified

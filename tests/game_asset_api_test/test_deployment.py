@@ -139,10 +139,6 @@ def _object_info_fixture() -> dict:
             "format": choices("mp4"),
             "codec": choices("h264"),
         },
-        "ADE_LoadAnimateDiffModel": {
-            "model_name": choices("mm_sdxl_v10_beta.safetensors")
-        },
-        "ADE_UseEvolvedSampling": {"beta_schedule": choices("autoselect")},
     }
     for node_type, inputs in required_choices.items():
         object_info[node_type]["input"]["required"].update(inputs)
@@ -163,18 +159,9 @@ def test_workflow_names_are_complete_and_ordered():
     assert WORKFLOW_NAMES == EXPECTED_WORKFLOW_NAMES
 
 
-def test_validate_object_info_rejects_missing_animatediff_model_option():
-    object_info = _object_info_fixture()
-    object_info["ADE_LoadAnimateDiffModel"]["input"]["required"]["model_name"] = [
-        ["another-motion-model.safetensors"]
-    ]
-
-    with pytest.raises(
-        ValueError, match="ADE_LoadAnimateDiffModel.model_name"
-    ) as captured:
-        _validate_object_info(object_info)
-
-    assert "mm_sdxl_v10_beta.safetensors" in str(captured.value)
+def test_production_discovery_does_not_require_animatediff_nodes():
+    assert ("ADE_LoadAnimateDiffModel", "model_name") not in deployment_module._DISCOVERY_INPUTS
+    assert ("ADE_UseEvolvedSampling", "beta_schedule") not in deployment_module._DISCOVERY_INPUTS
 
 
 def test_publish_workflows_validates_and_copies_all_workflows(tmp_path):
@@ -524,9 +511,6 @@ def test_deploy_runs_all_operations_in_order_with_explicit_root_and_python(
     module = _load_deploy_script()
     comfy_root = tmp_path / "ComfyUI"
     python = _valid_comfy_root(comfy_root)
-    reference = comfy_root / "input" / "example.png"
-    reference.parent.mkdir()
-    reference.write_bytes(b"reference")
     events = []
 
     def fake_publish(source, selected_root):
@@ -592,7 +576,7 @@ def test_deploy_runs_all_operations_in_order_with_explicit_root_and_python(
             "--root",
             str(root),
             "--character-image",
-            "example.png",
+            "game_assets/deployment-smoke/character.png",
             "--weapon",
             "game_assets/deployment-smoke/sword.json",
             "--asset-name",
@@ -600,7 +584,7 @@ def test_deploy_runs_all_operations_in_order_with_explicit_root_and_python(
             "--job-id",
             "deployment-smoke",
             "--character-prompt",
-            "pixel art knight",
+            "pixel art, full body unarmed white-robed cultivator, fixed side view, locked camera, consistent identity, both hands empty",
             "--frame-count",
             "2",
             "--sprite-size",
@@ -622,6 +606,10 @@ def test_deploy_runs_all_operations_in_order_with_explicit_root_and_python(
     with Image.open(weapon) as image:
         assert image.mode == "RGBA"
         assert image.getpixel((0, 0))[3] == 0
+    with Image.open(descriptor.with_name("character.png")) as image:
+        assert image.mode == "RGB"
+        assert image.size == (512, 512)
+        assert image.getpixel((0, 0)) == (108, 85, 44)
 
 
 def test_deploy_skip_flags_avoid_all_optional_side_effects(tmp_path, monkeypatch):
@@ -661,16 +649,12 @@ def test_deploy_skip_flags_avoid_all_optional_side_effects(tmp_path, monkeypatch
     assert events == [(ROOT / "workflows", comfy_root.resolve())]
 
 
-def test_deploy_requires_the_official_example_for_smoke(tmp_path, monkeypatch):
+def test_deploy_writes_a_smoke_character_without_the_official_example(tmp_path, monkeypatch):
     module = _load_deploy_script()
     comfy_root = tmp_path / "ComfyUI"
     _valid_comfy_root(comfy_root)
     monkeypatch.setattr(module, "publish_workflows", lambda source, root: ())
-    monkeypatch.setattr(
-        module.subprocess,
-        "run",
-        lambda *args, **kwargs: pytest.fail("runner must not start"),
-    )
+    monkeypatch.setattr(module.subprocess, "run", lambda *args, **kwargs: None)
     arguments = module.parse_arguments(
         [
             "--comfy-root",
@@ -681,8 +665,12 @@ def test_deploy_requires_the_official_example_for_smoke(tmp_path, monkeypatch):
         ]
     )
 
-    with pytest.raises(ValueError, match=r"input.*example\.png"):
-        module.deploy(arguments)
+    module.deploy(arguments)
+
+    character = comfy_root / "input" / "game_assets" / "deployment-smoke" / "character.png"
+    with Image.open(character) as image:
+        assert image.mode == "RGB"
+        assert image.size == (512, 512)
 
 
 class _Response:

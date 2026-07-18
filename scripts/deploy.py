@@ -10,7 +10,7 @@ import sys
 from urllib.error import HTTPError
 from urllib.request import urlopen
 
-from PIL import Image
+from PIL import Image, ImageDraw
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -96,9 +96,7 @@ def deploy(arguments: argparse.Namespace) -> None:
         object_info = discover_object_info(arguments.base_url)
         validate_object_info(object_info, ROOT / "workflows")
     if not arguments.skip_smoke:
-        reference = (comfy_root / "input" / "example.png").resolve()
-        if not reference.is_file():
-            raise ValueError(f"smoke reference not found: {reference}")
+        character = _write_smoke_character(comfy_root)
         weapon = _write_smoke_weapon(comfy_root)
         subprocess.run(
             [
@@ -107,7 +105,7 @@ def deploy(arguments: argparse.Namespace) -> None:
                 "--root",
                 root_argument,
                 "--character-image",
-                reference.relative_to(comfy_root / "input").as_posix(),
+                character.relative_to(comfy_root / "input").as_posix(),
                 "--weapon",
                 weapon.relative_to(comfy_root / "input").as_posix(),
                 "--asset-name",
@@ -115,7 +113,7 @@ def deploy(arguments: argparse.Namespace) -> None:
                 "--job-id",
                 "deployment-smoke",
                 "--character-prompt",
-                "pixel art knight",
+                "pixel art, full body unarmed white-robed cultivator, fixed side view, locked camera, consistent identity, both hands empty",
                 "--frame-count",
                 "2",
                 "--sprite-size",
@@ -152,6 +150,39 @@ def _write_smoke_weapon(comfy_root: Path) -> Path:
         encoding="utf-8",
     )
     return descriptor
+
+
+def _write_smoke_character(comfy_root: Path) -> Path:
+    directory = comfy_root / "input" / "game_assets" / "deployment-smoke"
+    directory.mkdir(parents=True, exist_ok=True)
+    character = directory / "character.png"
+    image = Image.new("RGB", (512, 512), (108, 85, 44))
+    draw = ImageDraw.Draw(image)
+    for box, color in (
+        ((208, 64, 303, 111), (25, 22, 28)),
+        ((224, 64, 287, 95), (245, 245, 240)),
+        ((208, 96, 303, 191), (22, 20, 25)),
+        ((224, 112, 287, 159), (252, 214, 177)),
+        ((240, 128, 255, 143), (32, 28, 32)),
+        ((272, 128, 287, 143), (32, 28, 32)),
+        ((224, 160, 287, 207), (244, 247, 250)),
+        ((176, 192, 335, 351), (24, 22, 28)),
+        ((192, 192, 319, 351), (245, 247, 250)),
+        ((144, 208, 191, 319), (24, 22, 28)),
+        ((320, 208, 367, 319), (24, 22, 28)),
+        ((144, 224, 175, 303), (245, 247, 250)),
+        ((336, 224, 367, 303), (245, 247, 250)),
+        ((176, 288, 335, 319), (29, 98, 188)),
+        ((192, 336, 255, 447), (24, 22, 28)),
+        ((272, 336, 319, 447), (24, 22, 28)),
+        ((208, 336, 255, 431), (245, 247, 250)),
+        ((272, 336, 303, 431), (245, 247, 250)),
+        ((176, 432, 255, 463), (24, 22, 28)),
+        ((272, 432, 351, 463), (24, 22, 28)),
+    ):
+        draw.rectangle(box, fill=color)
+    image.save(character, format="PNG")
+    return character
 
 
 def main(argv: list[str] | None = None) -> None:

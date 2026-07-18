@@ -40,8 +40,6 @@ _DISCOVERY_INPUTS = frozenset(
         ("IPAdapterAdvanced", "combine_embeds"),
         ("IPAdapterAdvanced", "embeds_scaling"),
         ("ControlNetLoader", "control_net_name"),
-        ("ADE_LoadAnimateDiffModel", "model_name"),
-        ("ADE_UseEvolvedSampling", "beta_schedule"),
         ("ImageScale", "upscale_method"),
         ("ImageScale", "crop"),
         ("KSampler", "sampler_name"),

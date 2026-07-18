@@ -14,18 +14,18 @@ from game_asset_api.animation_pipeline import (
 
 
 class FakeClient:
-    def __init__(self, history: dict[str, object]) -> None:
-        self.history = history
+    def __init__(self, histories: list[dict[str, object]]) -> None:
+        self.histories = list(histories)
         self.graphs: list[dict[str, object]] = []
 
     async def submit(self, graph: dict[str, object]) -> str:
         self.graphs.append(graph)
-        return "prompt-animation"
+        return f"prompt-animation-{len(self.graphs)}"
 
     async def wait_for_prompt(
         self, prompt_id: str, timeout_seconds: float = 1800
     ) -> dict[str, object]:
-        return self.history
+        return self.histories.pop(0)
 
 
 @pytest.mark.asyncio
@@ -34,7 +34,7 @@ async def test_animation_processor_publishes_a_complete_eight_frame_bundle(
 ) -> None:
     request = _write_valid_runtime_inputs(tmp_path, frame_count=8)
     records = _write_generated_records(tmp_path, "job-id", range(8))
-    client = FakeClient(_history(records))
+    client = FakeClient(_histories(records))
     processor = AnimationProcessor(tmp_path, client)
 
     prepared = processor.validate_inputs(request, "job-id")
@@ -46,9 +46,16 @@ async def test_animation_processor_publishes_a_complete_eight_frame_bundle(
     artifacts = processor.validate_and_publish(request, "job-id", staged)
 
     final = tmp_path / "output" / "game_assets" / "job-id" / "production_action"
-    assert prompt_id == "prompt-animation"
-    assert len(client.graphs) == 1
-    assert client.graphs[0]["3"]["inputs"]["image"] == "game_assets/job-id/production/reference.png"
+    assert prompt_id == "prompt-animation-1"
+    assert len(client.graphs) == 8
+    assert [graph["3"]["inputs"]["image"] for graph in client.graphs] == [
+        "game_assets/job-id/production/reference.png"
+    ] * 8
+    assert [graph["20"]["inputs"]["image"] for graph in client.graphs] == [
+        f"game_assets/job-id/production/poses/{index:03d}.png"
+        for index in range(8)
+    ]
+    assert all(graph["66"]["inputs"]["batch_size"] == 1 for graph in client.graphs)
     assert [path.name for path in generated] == [
         f"source_{index:05d}_.png" for index in range(8)
     ]
@@ -68,7 +75,7 @@ async def test_animation_processor_publishes_when_project_root_is_relative(
     root = Path("runtime")
     request = _write_valid_runtime_inputs(root, frame_count=8)
     records = _write_generated_records(root, "job-id", range(8))
-    processor = AnimationProcessor(root, FakeClient(_history(records)))
+    processor = AnimationProcessor(root, FakeClient(_histories(records)))
 
     prepared = processor.validate_inputs(request, "job-id")
     plan = processor.plan_motion(request, "job-id", prepared)
@@ -84,12 +91,13 @@ async def test_animation_processor_publishes_when_project_root_is_relative(
 
 
 @pytest.mark.asyncio
-async def test_animation_processor_sorts_comfy_output_records_before_stabilizing(
+async def test_animation_processor_submits_each_pose_in_motion_order(
     tmp_path: Path,
 ) -> None:
     request = _write_valid_runtime_inputs(tmp_path, frame_count=8)
-    records = _write_generated_records(tmp_path, "job-id", reversed(range(8)))
-    processor = AnimationProcessor(tmp_path, FakeClient(_history(records)))
+    records = _write_generated_records(tmp_path, "job-id", range(8))
+    client = FakeClient(_histories(records))
+    processor = AnimationProcessor(tmp_path, client)
     prepared = processor.validate_inputs(request, "job-id")
     plan = processor.plan_motion(request, "job-id", prepared)
 
@@ -98,6 +106,33 @@ async def test_animation_processor_sorts_comfy_output_records_before_stabilizing
     assert [path.name for path in generated] == [
         f"source_{index:05d}_.png" for index in range(8)
     ]
+    assert [graph["20"]["inputs"]["image"] for graph in client.graphs] == [
+        f"game_assets/job-id/production/poses/{index:03d}.png"
+        for index in range(8)
+    ]
+
+
+@pytest.mark.asyncio
+async def test_animation_processor_reports_each_submitted_prompt_id(tmp_path: Path) -> None:
+    request = _write_valid_runtime_inputs(tmp_path, frame_count=8)
+    records = _write_generated_records(tmp_path, "job-id", range(8))
+    client = FakeClient(_histories(records))
+    processor = AnimationProcessor(tmp_path, client)
+    prepared = processor.validate_inputs(request, "job-id")
+    plan = processor.plan_motion(request, "job-id", prepared)
+    reported = []
+
+    prompt_id, _ = await processor.generate(
+        request,
+        "job-id",
+        prepared,
+        plan,
+        on_prompt=lambda index, prompt_id: reported.append((index, prompt_id)),
+    )
+
+    expected = [f"prompt-animation-{index}" for index in range(1, 9)]
+    assert prompt_id == expected[0]
+    assert reported == list(enumerate(expected))
 
 
 @pytest.mark.asyncio
@@ -109,7 +144,7 @@ async def test_animation_processor_rejects_bad_records_and_cleanup_keeps_final_o
     temporary.mkdir(parents=True)
     processor = AnimationProcessor(
         tmp_path,
-        FakeClient(_history([{"filename": "../escape.png", "subfolder": "", "type": "output"}])),
+        FakeClient(_histories([{"filename": "../escape.png", "subfolder": "", "type": "output"}])),
     )
     prepared = processor.validate_inputs(request, "job-id")
     plan = processor.plan_motion(request, "job-id", prepared)
@@ -470,6 +505,10 @@ def _history(records: list[dict[str, str]]) -> dict[str, object]:
         "status": {"status_str": "success", "messages": []},
         "outputs": {"73": {"images": records}},
     }
+
+
+def _histories(records: list[dict[str, str]]) -> list[dict[str, object]]:
+    return [_history([record]) for record in records]
 
 
 def _write_staged_bundle(

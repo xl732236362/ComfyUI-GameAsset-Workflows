@@ -70,7 +70,7 @@
     "7": {
       "class_type": "CLIPTextEncode",
       "inputs": {
-        "text": "white-robed cultivator, fixed side view, locked camera, consistent identity, empty hands, pixel-art",
+        "text": "white-robed cultivator, fixed side view, locked camera, consistent identity, empty hands, both hands empty, single character, pixel-art",
         "clip": [
           "2",
           1
@@ -80,7 +80,7 @@
     "8": {
       "class_type": "CLIPTextEncode",
       "inputs": {
-        "text": "blurry, low quality, distorted, photorealistic, text, watermark, sword, weapon, scabbard, camera drift, duplicate limbs, cropped character",
+        "text": "blurry, low quality, distorted, photorealistic, text, watermark, sword, weapon, scabbard, staff, cane, polearm, wand, held object, multiple characters, character sheet, collage, grid, panels, camera drift, duplicate limbs, cropped character",
         "clip": [
           "2",
           1
@@ -91,139 +91,6 @@
       "class_type": "LoadImage",
       "inputs": {
         "image": "game_assets/example-production-animation/poses/000.png"
-      }
-    },
-    "21": {
-      "class_type": "LoadImage",
-      "inputs": {
-        "image": "game_assets/example-production-animation/poses/001.png"
-      }
-    },
-    "22": {
-      "class_type": "LoadImage",
-      "inputs": {
-        "image": "game_assets/example-production-animation/poses/002.png"
-      }
-    },
-    "23": {
-      "class_type": "LoadImage",
-      "inputs": {
-        "image": "game_assets/example-production-animation/poses/003.png"
-      }
-    },
-    "24": {
-      "class_type": "LoadImage",
-      "inputs": {
-        "image": "game_assets/example-production-animation/poses/004.png"
-      }
-    },
-    "25": {
-      "class_type": "LoadImage",
-      "inputs": {
-        "image": "game_assets/example-production-animation/poses/005.png"
-      }
-    },
-    "26": {
-      "class_type": "LoadImage",
-      "inputs": {
-        "image": "game_assets/example-production-animation/poses/006.png"
-      }
-    },
-    "27": {
-      "class_type": "LoadImage",
-      "inputs": {
-        "image": "game_assets/example-production-animation/poses/007.png"
-      }
-    },
-    "40": {
-      "class_type": "ImageBatch",
-      "inputs": {
-        "image1": [
-          "20",
-          0
-        ],
-        "image2": [
-          "21",
-          0
-        ]
-      }
-    },
-    "41": {
-      "class_type": "ImageBatch",
-      "inputs": {
-        "image1": [
-          "40",
-          0
-        ],
-        "image2": [
-          "22",
-          0
-        ]
-      }
-    },
-    "42": {
-      "class_type": "ImageBatch",
-      "inputs": {
-        "image1": [
-          "41",
-          0
-        ],
-        "image2": [
-          "23",
-          0
-        ]
-      }
-    },
-    "43": {
-      "class_type": "ImageBatch",
-      "inputs": {
-        "image1": [
-          "42",
-          0
-        ],
-        "image2": [
-          "24",
-          0
-        ]
-      }
-    },
-    "44": {
-      "class_type": "ImageBatch",
-      "inputs": {
-        "image1": [
-          "43",
-          0
-        ],
-        "image2": [
-          "25",
-          0
-        ]
-      }
-    },
-    "45": {
-      "class_type": "ImageBatch",
-      "inputs": {
-        "image1": [
-          "44",
-          0
-        ],
-        "image2": [
-          "26",
-          0
-        ]
-      }
-    },
-    "46": {
-      "class_type": "ImageBatch",
-      "inputs": {
-        "image1": [
-          "45",
-          0
-        ],
-        "image2": [
-          "27",
-          0
-        ]
       }
     },
     "60": {
@@ -248,7 +115,7 @@
           0
         ],
         "image": [
-          "46",
+          "20",
           0
         ],
         "strength": 0.9,
@@ -256,63 +123,19 @@
         "end_percent": 1.0
       }
     },
-    "62": {
-      "class_type": "ADE_LoadAnimateDiffModel",
-      "inputs": {
-        "model_name": "mm_sdxl_v10_beta.safetensors"
-      }
-    },
-    "63": {
-      "class_type": "ADE_ApplyAnimateDiffModelSimple",
-      "inputs": {
-        "motion_model": [
-          "62",
-          0
-        ]
-      }
-    },
-    "64": {
-      "class_type": "ADE_StandardUniformContextOptions",
-      "inputs": {
-        "context_length": 8,
-        "context_overlap": 0,
-        "context_stride": 1,
-        "context_schedule": "uniform",
-        "closed_loop": false,
-        "fuse_method": "flat"
-      }
-    },
-    "65": {
-      "class_type": "ADE_UseEvolvedSampling",
-      "inputs": {
-        "model": [
-          "6",
-          0
-        ],
-        "m_models": [
-          "63",
-          0
-        ],
-        "beta_schedule": "autoselect",
-        "context_options": [
-          "64",
-          0
-        ]
-      }
-    },
     "66": {
       "class_type": "EmptyLatentImage",
       "inputs": {
-        "width": 512,
-        "height": 512,
-        "batch_size": 8
+        "width": 1024,
+        "height": 1024,
+        "batch_size": 1
       }
     },
     "67": {
       "class_type": "KSampler",
       "inputs": {
         "model": [
-          "65",
+          "6",
           0
         ],
         "seed": 42,
@@ -367,6 +190,15 @@
         ]
       }
     },
+    "71": {
+      "class_type": "InvertMask",
+      "inputs": {
+        "mask": [
+          "70",
+          0
+        ]
+      }
+    },
     "72": {
       "class_type": "JoinImageWithAlpha",
       "inputs": {
@@ -375,7 +207,7 @@
           0
         ],
         "alpha": [
-          "70",
+          "71",
           0
         ]
       }
