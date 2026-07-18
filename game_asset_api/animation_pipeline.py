@@ -226,9 +226,11 @@ def _resolve_output_image(output_root: Path, record: Mapping[str, object]) -> Pa
 
 
 def _record_path(value: object, field: str, *, allow_empty: bool) -> tuple[str, ...]:
+    if isinstance(value, str):
+        value = value.replace("\\", "/")
     if allow_empty and value == "":
         return ()
-    if not isinstance(value, str) or not value or "\x00" in value or "\\" in value:
+    if not isinstance(value, str) or not value or "\x00" in value:
         raise ValueError(f"image record {field} must be a relative path")
     posix = PurePosixPath(value)
     windows = PureWindowsPath(value)

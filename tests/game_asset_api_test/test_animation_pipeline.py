@@ -6,7 +6,7 @@ from PIL import Image
 import pytest
 
 from game_asset_api.animation_contracts import parse_animation_request
-from game_asset_api.animation_pipeline import AnimationProcessor
+from game_asset_api.animation_pipeline import AnimationProcessor, _resolve_output_image
 
 
 class FakeClient:
@@ -122,6 +122,43 @@ async def test_animation_processor_rejects_bad_records_and_cleanup_keeps_final_o
     assert not temporary.exists()
     assert not staged.exists()
     assert (final / "published.txt").read_text(encoding="utf-8") == "keep"
+
+
+def test_output_image_normalizes_a_windows_comfy_subfolder(tmp_path: Path) -> None:
+    output = tmp_path / "output"
+    expected = output / ".animation_work" / "deployment-smoke" / "source.png"
+    expected.parent.mkdir(parents=True)
+    _write_rgba_character(expected, 0)
+
+    resolved = _resolve_output_image(
+        output,
+        {
+            "filename": "source.png",
+            "subfolder": ".animation_work\\deployment-smoke",
+            "type": "output",
+        },
+    )
+
+    assert resolved == expected.resolve()
+
+
+@pytest.mark.parametrize(
+    "subfolder",
+    (
+        "..\\escape",
+        "\\escape",
+        "C:\\escape",
+        ".animation_work\\..\\escape",
+    ),
+)
+def test_output_image_rejects_windows_traversal_and_absolute_subfolders(
+    tmp_path: Path, subfolder: str
+) -> None:
+    with pytest.raises(ValueError, match="image record subfolder must be a relative path"):
+        _resolve_output_image(
+            tmp_path,
+            {"filename": "source.png", "subfolder": subfolder, "type": "output"},
+        )
 
 
 def test_validate_and_publish_rejects_corrupt_frame_before_rename(tmp_path: Path) -> None:
