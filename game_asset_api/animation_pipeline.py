@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+import asyncio
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 import json
 import os
@@ -20,6 +21,10 @@ from game_asset_api.animation_workflow import OUTPUT_NODE_ID, build_production_a
 from game_asset_api.comfy_client import image_records
 from game_asset_api.godot_export import GodotArtifacts, write_godot_bundle
 from game_asset_api.weapon_composite import CompositedSequence, composite_weapons
+
+
+OUTPUT_IMAGE_POLL_INTERVAL_SECONDS = 0.1
+OUTPUT_IMAGE_READY_TIMEOUT_SECONDS = 5.0
 
 
 class AnimationPromptClient(Protocol):
@@ -104,8 +109,12 @@ class AnimationProcessor:
         )
         if len(records) != request.frame_count:
             raise ValueError("generated frame count must equal requested frame_count")
-        paths = tuple(
-            _resolve_output_image(self.output_root, record) for record in records
+        paths = await _wait_for_output_images(
+            self.output_root,
+            records,
+            timeout_seconds=min(
+                self.timeout_seconds, OUTPUT_IMAGE_READY_TIMEOUT_SECONDS
+            ),
         )
         if len(paths) != len(plan.frames):
             raise ValueError("generated frame count must equal motion frame count")
@@ -203,6 +212,44 @@ def _record_sort_key(record: Mapping[str, object]) -> tuple[str, str]:
 
 
 def _resolve_output_image(output_root: Path, record: Mapping[str, object]) -> Path:
+    root, candidate = _output_image_candidate(output_root, record)
+    try:
+        return _resolve_output_candidate(root, candidate)
+    except FileNotFoundError as error:
+        raise ValueError("ComfyUI output image is missing") from error
+
+
+async def _wait_for_output_images(
+    output_root: Path,
+    records: list[Mapping[str, object]],
+    timeout_seconds: float,
+    *,
+    clock: Callable[[], float] | None = None,
+    sleep: Callable[[float], Awaitable[None]] | None = None,
+) -> tuple[Path, ...]:
+    candidates = tuple(_output_image_candidate(output_root, record) for record in records)
+    clock = clock or asyncio.get_running_loop().time
+    sleep = sleep or asyncio.sleep
+    deadline = clock() + timeout_seconds
+    while True:
+        paths = []
+        missing = False
+        for root, candidate in candidates:
+            try:
+                paths.append(_resolve_output_candidate(root, candidate))
+            except FileNotFoundError:
+                missing = True
+        if not missing:
+            return tuple(paths)
+        remaining = deadline - clock()
+        if remaining <= 0:
+            raise ValueError("ComfyUI output image is missing")
+        await sleep(min(OUTPUT_IMAGE_POLL_INTERVAL_SECONDS, remaining))
+
+
+def _output_image_candidate(
+    output_root: Path, record: Mapping[str, object]
+) -> tuple[Path, Path]:
     if record.get("type") != "output":
         raise ValueError("image record type must be output")
     filename = _record_path(record.get("filename"), "filename", allow_empty=False)
@@ -212,8 +259,14 @@ def _resolve_output_image(output_root: Path, record: Mapping[str, object]) -> Pa
     except OSError as error:
         raise ValueError("ComfyUI output directory is unreadable") from error
     candidate = root.joinpath(*subfolder, *filename)
+    return root, candidate
+
+
+def _resolve_output_candidate(root: Path, candidate: Path) -> Path:
     try:
         resolved = candidate.resolve(strict=True)
+    except FileNotFoundError:
+        raise
     except OSError as error:
         raise ValueError("ComfyUI output image is missing") from error
     try:
@@ -221,7 +274,7 @@ def _resolve_output_image(output_root: Path, record: Mapping[str, object]) -> Pa
     except ValueError:
         raise ValueError("image record escapes the ComfyUI output directory") from None
     if not resolved.is_file():
-        raise ValueError("ComfyUI output image is missing")
+        raise FileNotFoundError
     return resolved
 
 

@@ -6,7 +6,11 @@ from PIL import Image
 import pytest
 
 from game_asset_api.animation_contracts import parse_animation_request
-from game_asset_api.animation_pipeline import AnimationProcessor, _resolve_output_image
+from game_asset_api.animation_pipeline import (
+    AnimationProcessor,
+    _resolve_output_image,
+    _wait_for_output_images,
+)
 
 
 class FakeClient:
@@ -142,6 +146,66 @@ def test_output_image_normalizes_a_windows_comfy_subfolder(tmp_path: Path) -> No
     assert resolved == expected.resolve()
 
 
+@pytest.mark.asyncio
+async def test_output_image_waits_for_a_delayed_comfy_output_file(
+    tmp_path: Path,
+) -> None:
+    output = tmp_path / "output"
+    output.mkdir()
+    expected = output / ".animation_work" / "deployment-smoke" / "source.png"
+    waits = []
+
+    async def sleep(seconds: float) -> None:
+        waits.append(seconds)
+        expected.parent.mkdir(parents=True)
+        _write_rgba_character(expected, 0)
+
+    resolved = await _wait_for_output_images(
+        output,
+        [
+            {
+                "filename": "source.png",
+                "subfolder": ".animation_work\\deployment-smoke",
+                "type": "output",
+            }
+        ],
+        timeout_seconds=1.0,
+        clock=lambda: 0.0,
+        sleep=sleep,
+    )
+
+    assert resolved == (expected.resolve(),)
+    assert waits == [0.1]
+
+
+@pytest.mark.asyncio
+async def test_output_image_wait_fails_after_its_timeout(tmp_path: Path) -> None:
+    output = tmp_path / "output"
+    output.mkdir()
+    clock_values = iter((0.0, 0.0, 0.1))
+    waits = []
+
+    async def sleep(seconds: float) -> None:
+        waits.append(seconds)
+
+    with pytest.raises(ValueError, match="ComfyUI output image is missing"):
+        await _wait_for_output_images(
+            output,
+            [
+                {
+                    "filename": "source.png",
+                    "subfolder": ".animation_work\\deployment-smoke",
+                    "type": "output",
+                }
+            ],
+            timeout_seconds=0.1,
+            clock=lambda: next(clock_values),
+            sleep=sleep,
+        )
+
+    assert waits == [0.1]
+
+
 @pytest.mark.parametrize(
     "subfolder",
     (
@@ -151,14 +215,24 @@ def test_output_image_normalizes_a_windows_comfy_subfolder(tmp_path: Path) -> No
         ".animation_work\\..\\escape",
     ),
 )
-def test_output_image_rejects_windows_traversal_and_absolute_subfolders(
+@pytest.mark.asyncio
+async def test_output_image_rejects_windows_traversal_and_absolute_subfolders(
     tmp_path: Path, subfolder: str
 ) -> None:
+    waits = []
+
+    async def sleep(seconds: float) -> None:
+        waits.append(seconds)
+
     with pytest.raises(ValueError, match="image record subfolder must be a relative path"):
-        _resolve_output_image(
+        await _wait_for_output_images(
             tmp_path,
-            {"filename": "source.png", "subfolder": subfolder, "type": "output"},
+            [{"filename": "source.png", "subfolder": subfolder, "type": "output"}],
+            timeout_seconds=1.0,
+            clock=lambda: 0.0,
+            sleep=sleep,
         )
+    assert waits == []
 
 
 def test_validate_and_publish_rejects_corrupt_frame_before_rename(tmp_path: Path) -> None:
