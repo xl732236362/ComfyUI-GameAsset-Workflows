@@ -598,6 +598,28 @@ def test_main_constructs_local_api_with_environment_host_and_port(monkeypatch, t
     assert calls["run"] == ("app", "0.0.0.0", 9001)
 
 
+def test_readme_documents_production_animation_and_godot_export():
+    root = Path(__file__).resolve().parents[2]
+    readme = (root / "README.md").read_text(encoding="utf-8")
+
+    for text in (
+        "POST /v1/animations",
+        "weapon descriptor",
+        "frame_count",
+        "8, 12, or 16",
+        "sprite_frames.tres",
+        "animation.json",
+        "GODOT_BIN",
+        "curl 7.71",
+        "ComfyUI-AnimateDiff-Evolved",
+        "animatediff-motion-adapter-sdxl-beta",
+        "res://game_assets/",
+        "2-frame preflight",
+        "stage-specific",
+    ):
+        assert text in readme
+
+
 def test_main_rejects_invalid_port_before_starting_server(monkeypatch):
     monkeypatch.setenv("GAME_ASSET_API_PORT", "not-a-port")
 

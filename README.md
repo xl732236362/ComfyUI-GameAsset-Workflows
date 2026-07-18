@@ -19,7 +19,7 @@ This repository has no `LICENSE` file and grants no license.
 ## Requirements
 
 - Windows PowerShell 5.1 or later.
-- Git and `curl.exe` available on `PATH`.
+- Git and `curl.exe` available on `PATH`; curl 7.71 or later is required.
 - Network access to GitHub and Hugging Face or `hf-mirror.com` for pinned node
   archives and model downloads.
 - A separate ComfyUI root containing `main.py` and a Python 3.11 or later
@@ -29,7 +29,10 @@ This repository has no `LICENSE` file and grants no license.
 - A local ComfyUI HTTP server, normally `http://127.0.0.1:8188`, for discovery,
   deployment smoke tests, API jobs, and pose runs.
 - Enough disk space and GPU resources for the manifest-listed models. Actual
-  requirements depend on the selected model and workflow.
+  requirements depend on the selected model and workflow. Production animation
+  requires at least 16 GB VRAM.
+- Godot 4.x headless for export validation, selected with `GODOT_BIN` or the
+  `--godot` option.
 
 ## Verify And Deploy
 
@@ -38,14 +41,23 @@ Run the full repository test suite from the standalone checkout:
 ```powershell
 Set-Location 'E:\ComfyUI-GameAsset-Workflows'
 & 'E:\ComfyUI\.venv\Scripts\python.exe' -m pytest 'tests\game_asset_api_test' -q
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 ```
 
 ### Model Coverage
 
-The five workflows reference nine loader files. The six entries in
+The six workflows reference ten loader files. The seven entries in
 `game_asset_api\model_manifest.py` are managed models: deployment downloads
 missing files from their pinned mirror URLs and verifies byte size and SHA-256
 before publishing them.
+
+Production animation adds [ComfyUI-AnimateDiff-Evolved](https://github.com/Kosinkadink/ComfyUI-AnimateDiff-Evolved)
+at revision `d8d163cd90b1111f6227495e3467633676fbb346` and the
+`guoyww/animatediff-motion-adapter-sdxl-beta` motion adapter. The adapter is
+installed as `models/animatediff_models/mm_sdxl_v10_beta.safetensors`; its
+primary source is `hf-mirror.com` and its explicit upstream fallback is
+Hugging Face. Both sources use the same resumable partial file and the final
+file is promoted only after the pinned SHA-256 verifies.
 
 The following three Wan files are not in `MODEL_SPECS` and must already be
 installed under the ComfyUI root:
@@ -64,24 +76,26 @@ hash-check them.
 
 ### Already-Provisioned Deployment
 
-When all nine model files and pinned custom nodes are already installed, and
+When all ten model files and pinned custom nodes are already installed, and
 the running ComfyUI server has loaded those nodes, ensure
 `E:\ComfyUI\input\example.png` exists and run the supported entry point:
 
 ```powershell
 Set-Location 'E:\ComfyUI-GameAsset-Workflows'
 & '.\deploy.ps1' -ComfyRoot 'E:\ComfyUI'
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 ```
 
-Deployment validates the ComfyUI root, publishes the five JSON files from
+Deployment validates the ComfyUI root, publishes the six JSON files from
 `workflows` to `E:\ComfyUI\user\default\workflows`, installs or verifies the
-pinned custom nodes and six managed models, checks every workflow node and
+pinned custom nodes and seven managed models, checks every workflow node and
 configured loader option against the live `/object_info` response, and runs a
 two-frame, 64-pixel smoke action using `input\example.png`.
 
 The published files are `pixel_character_design_api.json`,
 `pixel_character_action_api.json`, `pose_controlled_pixel_action_api.json`,
-`video_wan2_2_5B_ti2v.json`, and `wan2_2_5b_dual_balanced.json`.
+`video_wan2_2_5B_ti2v.json`, `wan2_2_5b_dual_balanced.json`, and
+`production_animation_api.json`.
 
 ### Fresh Or Newly Installed Nodes
 
@@ -97,10 +111,11 @@ Set-Location 'E:\ComfyUI-GameAsset-Workflows'
   --comfy-root 'E:\ComfyUI' `
   --skip-discovery `
   --skip-smoke
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 ```
 
 This stage publishes the workflows, installs the pinned custom nodes and their
-requirements, and downloads or verifies the six managed models. Its skipped
+requirements, and downloads or verifies the seven managed models. Its skipped
 discovery and smoke stages mean it is not a complete deployment validation.
 
 Start or restart ComfyUI normally, wait until `http://127.0.0.1:8188` is
@@ -109,6 +124,7 @@ healthy and startup has finished, then run the complete deployment:
 ```powershell
 Set-Location 'E:\ComfyUI-GameAsset-Workflows'
 & '.\deploy.ps1' -ComfyRoot 'E:\ComfyUI'
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 ```
 
 `deploy.ps1` accepts only `-ComfyRoot` and `-BaseUrl`. The diagnostic
@@ -128,7 +144,8 @@ Set-Location E:\ComfyUI-GameAsset-Workflows
 $env:COMFYUI_ROOT = 'E:\ComfyUI'
 $env:GAME_ASSET_API_PORT = '8190'
 $env:GAME_ASSET_API_HOST = '127.0.0.1'
-E:\ComfyUI\.venv\Scripts\python.exe -m game_asset_api
+& E:\ComfyUI\.venv\Scripts\python.exe -m game_asset_api
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 ```
 
 `COMFYUI_ROOT` must contain `main.py`. `GAME_ASSET_API_HOST` defaults to
@@ -158,6 +175,102 @@ Invoke-RestMethod `
   -Uri ("http://127.0.0.1:8190/v1/jobs/{0}" -f $job.job_id)
 ```
 
+## Run A Production Animation
+
+`POST /v1/animations` accepts a saved character image and a weapon descriptor
+below `E:\ComfyUI\input`. `character_image` and `weapon` are safe relative
+paths; the first production release accepts only `sword_attack` and
+`frame_count` values `8, 12, or 16`. A request without a seed receives a
+durable server-assigned seed.
+
+The weapon descriptor references a transparent PNG relative to the descriptor
+and fixes its normalized grip and tip points. For
+`E:\ComfyUI\input\weapons\sword.json`, use this descriptor with
+`E:\ComfyUI\input\weapons\sword.png`:
+
+```json
+{
+  "schema_version": 1,
+  "image": "sword.png",
+  "grip": [0.125, 0.5],
+  "tip": [0.875, 0.5],
+  "default_layer": "behind_character"
+}
+```
+
+Submit an asynchronous animation job and poll its status:
+
+```powershell
+$body = @{
+  asset_name = 'cultivator_attack'
+  character_image = 'characters/cultivator.png'
+  character_prompt = 'side-view cultivator in white and cyan robes'
+  weapon = 'weapons/sword.json'
+  action = 'sword_attack'
+  frame_count = 8
+  sprite_size = 128
+  seed = 42
+  godot_resource_prefix = 'res://game_assets/cultivator_attack'
+} | ConvertTo-Json
+
+$job = Invoke-RestMethod `
+  -Method Post `
+  -Uri 'http://127.0.0.1:8190/v1/animations' `
+  -ContentType 'application/json' `
+  -Body $body
+
+do {
+  Start-Sleep -Seconds 1
+  $status = Invoke-RestMethod `
+    -Method Get `
+    -Uri ("http://127.0.0.1:8190/v1/jobs/{0}" -f $job.job_id)
+} while ($status.status -in 'queued', 'validating_inputs', 'motion_planning', 'temporal_generation', 'character_stabilization', 'weapon_composite', 'godot_export', 'validating_outputs')
+
+$status
+```
+
+Generation has no alternate-model or pose-workflow fallback. A failed job
+returns its public error and the stage-specific `stage` value; correct the
+reported input, discovery, generation, composition, export, or validation
+failure before submitting a new job.
+
+Use the CLI for the 2-frame preflight. It is deliberately a local-only
+exception to the HTTP contract and validates the same transparent weapon input:
+
+```powershell
+Set-Location 'E:\ComfyUI-GameAsset-Workflows'
+& 'E:\ComfyUI\.venv\Scripts\python.exe' '.\scripts\run_production_animation.py' `
+  --root 'E:\ComfyUI' `
+  --character-image 'characters/cultivator.png' `
+  --weapon 'weapons/sword.json' `
+  --asset-name 'cultivator-preflight' `
+  --character-prompt 'side-view cultivator in white and cyan robes' `
+  --job-id 'cultivator-preflight-2f' `
+  --frame-count 2 `
+  --sprite-size 64 `
+  --seed 42
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+```
+
+Run production validation at eight frames, then repeat with `--frame-count 12`
+and `--frame-count 16` before accepting a new action:
+
+```powershell
+Set-Location 'E:\ComfyUI-GameAsset-Workflows'
+& 'E:\ComfyUI\.venv\Scripts\python.exe' '.\scripts\run_production_animation.py' `
+  --root 'E:\ComfyUI' `
+  --character-image 'characters/cultivator.png' `
+  --weapon 'weapons/sword.json' `
+  --asset-name 'cultivator-attack' `
+  --character-prompt 'side-view cultivator in white and cyan robes' `
+  --job-id 'cultivator-attack-8f' `
+  --frame-count 8 `
+  --sprite-size 128 `
+  --seed 42 `
+  --base-url 'http://127.0.0.1:8188'
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+```
+
 ## Run A Pose-Controlled Action
 
 The reference path must name a real image. These examples use the same local
@@ -179,6 +292,7 @@ Set-Location 'E:\ComfyUI-GameAsset-Workflows'
   --sprite-size 64 `
   --seed 42 `
   --base-url 'http://127.0.0.1:8188'
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 ```
 
 An eight-frame run renders the complete authored sequence: anticipation,
@@ -198,6 +312,7 @@ Set-Location 'E:\ComfyUI-GameAsset-Workflows'
   --sprite-size 128 `
   --seed 20260717 `
   --base-url 'http://127.0.0.1:8188'
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 ```
 
 ## Runtime Outputs
@@ -206,6 +321,31 @@ Job files are written below
 `E:\ComfyUI\output\game_assets\<job-id>`. The pose runner places validated
 frames and `spritesheet.png` in that job's `pose_action` directory. Deployed
 workflows live in `E:\ComfyUI\user\default\workflows`.
+
+Production animation publishes only after validation under
+`E:\ComfyUI\output\game_assets\<job-id>\production_action`:
+
+```text
+production_action/
+  frames/000.png ...
+  spritesheet.png
+  sprite_frames.tres
+  animation.json
+  preview.gif
+```
+
+Copy that directory into the target Godot project at the same requested
+`res://game_assets/<asset-name>` resource prefix. `animation.json` records the
+prefix and `sprite_frames.tres` contains the `sword_attack` animation. Validate
+the exported bundle with Godot 4.x headless before committing it to the game:
+
+```powershell
+$env:GODOT_BIN = 'C:\Tools\Godot\Godot_v4.7.1-stable_win64_console.exe'
+& 'E:\ComfyUI\.venv\Scripts\python.exe' '.\scripts\validate_godot_export.py' `
+  --bundle 'E:\ComfyUI\output\game_assets\cultivator-attack-8f\production_action' `
+  --resource-prefix 'res://game_assets/cultivator-attack'
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+```
 
 All runtime models, custom nodes, copied inputs, generated outputs, caches, and
 deployed workflow copies stay under the ComfyUI root and do not enter this
@@ -233,12 +373,15 @@ unchanged, and audit the Git index:
 ```powershell
 Set-Location 'E:\ComfyUI-GameAsset-Workflows'
 & 'E:\ComfyUI\.venv\Scripts\python.exe' '.\scripts\export_game_asset_workflows.py'
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 & 'E:\ComfyUI\.venv\Scripts\python.exe' '.\scripts\export_pose_controlled_workflow.py'
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 git diff --exit-code -- workflows
 if ($LASTEXITCODE -ne 0) {
-  throw 'Workflow export changed checked-in artifacts.'
+  exit $LASTEXITCODE
 }
 & 'E:\ComfyUI\.venv\Scripts\python.exe' '.\scripts\audit_repository.py'
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 ```
 
 An expected export leaves `git diff --exit-code -- workflows` at exit code 0.
