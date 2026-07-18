@@ -15,8 +15,9 @@ from uuid import UUID
 
 from aiohttp import ContentTypeError, web
 
+from game_asset_api.animation_contracts import parse_animation_request
 from game_asset_api.contracts import RequestError, parse_asset_request
-from game_asset_api.jobs import Job, JobRunner, JobStatus
+from game_asset_api.jobs import Job, JobKind, JobRunner, JobStatus
 
 
 _MAX_PUBLIC_ERROR_LENGTH = 500
@@ -39,6 +40,7 @@ def create_app(runner: JobRunner, client: Any | None = None) -> web.Application:
     app["game_asset_api.client"] = client
 
     app.router.add_post("/v1/game-assets", _create_job)
+    app.router.add_post("/v1/animations", _create_animation)
     app.router.add_get("/v1/jobs/{job_id}", _get_job)
     app.router.add_get("/assets/{job_id}/{path:.*}", _get_asset)
     app.on_startup.append(_start_runner)
@@ -61,6 +63,21 @@ async def _create_job(request: web.Request) -> web.Response:
     return web.json_response({"job_id": job.id, "status": _status_value(job.status)}, status=202)
 
 
+async def _create_animation(request: web.Request) -> web.Response:
+    try:
+        data = await request.json()
+    except (ContentTypeError, json.JSONDecodeError, UnicodeDecodeError, ValueError):
+        return web.json_response({"error": "request body must be valid JSON"}, status=400)
+
+    try:
+        animation_request = parse_animation_request(data)
+    except (RequestError, ValueError) as error:
+        return web.json_response({"error": str(error)}, status=400)
+
+    job = _runner(request.app).enqueue_animation(animation_request)
+    return web.json_response({"job_id": job.id, "status": _status_value(job.status)}, status=202)
+
+
 async def _get_job(request: web.Request) -> web.Response:
     job_id = request.match_info["job_id"]
     if not _is_uuid(job_id):
@@ -73,6 +90,8 @@ async def _get_job(request: web.Request) -> web.Response:
     payload: dict[str, object] = {"job_id": job.id, "status": _status_value(job.status)}
     if job.error is not None:
         payload["error"] = _public_error(job.error)
+    if job.failed_stage is not None:
+        payload["stage"] = job.failed_stage
     if job.status is JobStatus.COMPLETED:
         _add_completed_outputs(payload, job)
     return web.json_response(payload)
@@ -129,15 +148,13 @@ def _public_error(error: str) -> str:
 
 
 def _add_completed_outputs(payload: dict[str, object], job: Job) -> None:
-    character = _public_asset_url(job.id, job.outputs.get("character"))
-    spritesheet = _public_asset_url(job.id, job.outputs.get("spritesheet"))
-    metadata = _public_asset_url(job.id, job.outputs.get("metadata"))
-    if character is not None:
-        payload["character_design"] = character
-    if spritesheet is not None:
-        payload["spritesheet"] = spritesheet
-    if metadata is not None:
-        payload["metadata"] = metadata
+    if job.kind is JobKind.GAME_ASSET:
+        character = _public_asset_url(job.id, job.outputs.get("character"))
+        if character is not None:
+            payload["character_design"] = character
+    for key in ("spritesheet", "metadata", "sprite_frames", "preview"):
+        if (url := _public_asset_url(job.id, job.outputs.get(key))) is not None:
+            payload[key] = url
     frames = [
         public_url
         for _, output in sorted(

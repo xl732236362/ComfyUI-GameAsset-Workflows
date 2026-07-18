@@ -1,4 +1,5 @@
 import asyncio
+from dataclasses import dataclass, replace
 import json
 from pathlib import Path
 
@@ -6,9 +7,10 @@ import pytest
 from aiohttp import web
 from PIL import Image
 
+from game_asset_api.animation_contracts import AnimationRequest, parse_animation_request
 from game_asset_api.comfy_client import ComfyClient, image_records
 from game_asset_api.contracts import AssetRequest, parse_asset_request
-from game_asset_api.jobs import JobRunner, JobStatus, JobStore, _resolve_output_image
+from game_asset_api.jobs import JobKind, JobRunner, JobStatus, JobStore, _resolve_output_image
 
 
 def _request(**overrides) -> AssetRequest:
@@ -17,6 +19,22 @@ def _request(**overrides) -> AssetRequest:
             "character_prompt": "armored knight",
             "action_prompt": "walking in place",
             "frame_count": 2,
+            "sprite_size": 64,
+            "seed": 7,
+            **overrides,
+        }
+    )
+
+
+def _animation_request(**overrides) -> AnimationRequest:
+    return parse_animation_request(
+        {
+            "asset_name": "cultivator_attack",
+            "character_image": "characters/cultivator.png",
+            "character_prompt": "cultivator",
+            "weapon": "weapons/sword.json",
+            "action": "sword_attack",
+            "frame_count": 8,
             "sprite_size": 64,
             "seed": 7,
             **overrides,
@@ -69,6 +87,181 @@ def test_job_store_rejects_illegal_nonterminal_transition(tmp_path):
 
     with pytest.raises(ValueError, match="invalid job transition"):
         store.transition(job.id, JobStatus.POSTPROCESSING)
+
+
+def test_job_store_round_trips_a_production_animation_request(tmp_path):
+    store = JobStore(tmp_path / "jobs")
+    request = _animation_request()
+
+    job = store.create_animation(request)
+    transitioned = store.transition(job.id, JobStatus.VALIDATING_INPUTS)
+
+    assert transitioned.kind is JobKind.PRODUCTION_ANIMATION
+    assert transitioned.request == request
+    manifest = json.loads((tmp_path / "jobs" / job.id / "job.json").read_text(encoding="utf-8"))
+    assert manifest["kind"] == "production_animation"
+    assert store.read(job.id) == transitioned
+
+
+def test_job_store_assigns_a_durable_seed_to_an_animation_request(tmp_path, monkeypatch):
+    store = JobStore(tmp_path / "jobs")
+    monkeypatch.setattr("game_asset_api.jobs.secrets.randbits", lambda _: 1234)
+
+    job = store.create_animation(replace(_animation_request(), seed=None))
+
+    assert job.request.seed == 1234
+    manifest = json.loads((tmp_path / "jobs" / job.id / "job.json").read_text(encoding="utf-8"))
+    assert manifest["request"]["seed"] == 1234
+
+
+def test_job_store_reads_existing_manifests_without_a_kind_as_game_assets(tmp_path):
+    store = JobStore(tmp_path / "jobs")
+    job = store.create(_request())
+    manifest_path = tmp_path / "jobs" / job.id / "job.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest.pop("kind")
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    assert store.read(job.id).kind is JobKind.GAME_ASSET
+
+
+@dataclass(frozen=True)
+class _FakeArtifacts:
+    frames: tuple[Path, ...]
+    spritesheet: Path
+    sprite_frames: Path
+    metadata: Path
+    preview: Path
+
+
+class _FakeAnimationProcessor:
+    def __init__(self, output_root: Path, failing_stage: str | None = None) -> None:
+        self.output_root = output_root
+        self.failing_stage = failing_stage
+        self.cleanups: list[str] = []
+        self.stages: list[tuple[str, str]] = []
+        self.active_generations = 0
+        self.max_active_generations = 0
+        self.store: JobStore | None = None
+        self.current_job_id: str | None = None
+
+    def _stage(self, name: str, job_id: str) -> None:
+        assert self.store is not None
+        self.current_job_id = job_id
+        self.stages.append((name, self.store.read(job_id).status.value))
+        if self.failing_stage == name:
+            raise RuntimeError(f"{name} failed")
+
+    def validate_inputs(self, request, job_id):
+        self._stage("validate_inputs", job_id)
+        return "prepared"
+
+    def plan_motion(self, request, job_id, prepared):
+        self._stage("plan_motion", job_id)
+        return "plan"
+
+    async def generate(self, request, job_id, prepared, plan):
+        self._stage("generate", job_id)
+        self.active_generations += 1
+        self.max_active_generations = max(self.max_active_generations, self.active_generations)
+        await asyncio.sleep(0)
+        self.active_generations -= 1
+        return "animation-prompt", "generated"
+
+    def stabilize(self, request, plan, generated):
+        assert self.current_job_id is not None
+        self._stage("stabilize", self.current_job_id)
+        return "stabilized"
+
+    def composite(self, plan, stabilized, prepared):
+        assert self.current_job_id is not None
+        self._stage("composite", self.current_job_id)
+        return "composited"
+
+    def export(self, request, job_id, plan, stabilized, composited):
+        self._stage("export", job_id)
+        return "staged"
+
+    def validate_and_publish(self, request, job_id, staged):
+        self._stage("validate_and_publish", job_id)
+        base = self.output_root / job_id / "production_action"
+        return _FakeArtifacts(
+            (base / "frames" / "000.png",),
+            base / "spritesheet.png",
+            base / "sprite_frames.tres",
+            base / "animation.json",
+            base / "preview.gif",
+        )
+
+    def cleanup(self, job_id):
+        self.cleanups.append(job_id)
+
+
+@pytest.mark.asyncio
+async def test_job_runner_processes_animation_stages_in_order_and_serializes_generation(tmp_path):
+    processor = _FakeAnimationProcessor(tmp_path / "output" / "game_assets")
+    runner = JobRunner(tmp_path, _FakeComfyClient({}, {}), animation_processor=processor)
+    processor.store = runner.store
+    runner.start()
+    first = runner.enqueue_animation(_animation_request())
+    second = runner.enqueue_animation(_animation_request(asset_name="second_attack"))
+    await runner.join()
+    await runner.stop()
+
+    assert runner.store.read(first.id).status is JobStatus.COMPLETED
+    assert runner.store.read(second.id).status is JobStatus.COMPLETED
+    assert processor.max_active_generations == 1
+    assert processor.stages == [
+        ("validate_inputs", "validating_inputs"),
+        ("plan_motion", "motion_planning"),
+        ("generate", "temporal_generation"),
+        ("stabilize", "character_stabilization"),
+        ("composite", "weapon_composite"),
+        ("export", "godot_export"),
+        ("validate_and_publish", "validating_outputs"),
+    ] * 2
+    completed = runner.store.read(first.id)
+    assert completed.prompt_ids == {"animation": "animation-prompt"}
+    assert completed.outputs == {
+        "frame_000": f"/assets/{first.id}/production_action/frames/000.png",
+        "spritesheet": f"/assets/{first.id}/production_action/spritesheet.png",
+        "sprite_frames": f"/assets/{first.id}/production_action/sprite_frames.tres",
+        "metadata": f"/assets/{first.id}/production_action/animation.json",
+        "preview": f"/assets/{first.id}/production_action/preview.gif",
+    }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("failing_stage", "expected_status"),
+    [
+        ("validate_inputs", JobStatus.VALIDATING_INPUTS),
+        ("plan_motion", JobStatus.MOTION_PLANNING),
+        ("generate", JobStatus.TEMPORAL_GENERATION),
+        ("stabilize", JobStatus.CHARACTER_STABILIZATION),
+        ("composite", JobStatus.WEAPON_COMPOSITE),
+        ("export", JobStatus.GODOT_EXPORT),
+        ("validate_and_publish", JobStatus.VALIDATING_OUTPUTS),
+    ],
+)
+async def test_job_runner_cleans_production_work_after_each_stage_failure(
+    tmp_path, failing_stage, expected_status
+):
+    processor = _FakeAnimationProcessor(
+        tmp_path / "output" / "game_assets", failing_stage=failing_stage
+    )
+    runner = JobRunner(tmp_path, _FakeComfyClient({}, {}), animation_processor=processor)
+    processor.store = runner.store
+    runner.start()
+    job = runner.enqueue_animation(_animation_request())
+    await runner.join()
+    await runner.stop()
+
+    failed = runner.store.read(job.id)
+    assert failed.status is JobStatus.FAILED
+    assert failed.failed_stage == expected_status.value
+    assert failed.error == f"{failing_stage} failed"
+    assert processor.cleanups == [job.id]
 
 
 @pytest.mark.asyncio

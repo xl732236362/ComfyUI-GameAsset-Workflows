@@ -4,19 +4,22 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Mapping
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timezone
 from enum import Enum
 import json
 from pathlib import Path
+import secrets
 import shutil
-from typing import Protocol
+from typing import Protocol, cast
 from uuid import uuid4
 
 from PIL import Image
 
+from game_asset_api.animation_contracts import AnimationRequest, parse_animation_request
 from game_asset_api.comfy_client import image_records
 from game_asset_api.contracts import AssetRequest, parse_asset_request
+from game_asset_api.godot_export import GodotArtifacts
 from game_asset_api.postprocess import copy_selected_frames, frame_indices, write_sprite_sheet
 from game_asset_api.prompting import build_action_prompt, build_character_prompt
 from game_asset_api.workflows import (
@@ -26,20 +29,46 @@ from game_asset_api.workflows import (
 )
 
 
+class JobKind(str, Enum):
+    GAME_ASSET = "game_asset"
+    PRODUCTION_ANIMATION = "production_animation"
+
+
 class JobStatus(str, Enum):
     QUEUED = "queued"
     GENERATING_CHARACTER = "generating_character"
     GENERATING_ACTION = "generating_action"
     POSTPROCESSING = "postprocessing"
+    VALIDATING_INPUTS = "validating_inputs"
+    MOTION_PLANNING = "motion_planning"
+    TEMPORAL_GENERATION = "temporal_generation"
+    CHARACTER_STABILIZATION = "character_stabilization"
+    WEAPON_COMPOSITE = "weapon_composite"
+    GODOT_EXPORT = "godot_export"
+    VALIDATING_OUTPUTS = "validating_outputs"
     COMPLETED = "completed"
     FAILED = "failed"
 
 
 _ALLOWED_TRANSITIONS = {
-    JobStatus.QUEUED: {JobStatus.GENERATING_CHARACTER, JobStatus.FAILED},
+    JobStatus.QUEUED: {
+        JobStatus.GENERATING_CHARACTER,
+        JobStatus.VALIDATING_INPUTS,
+        JobStatus.FAILED,
+    },
     JobStatus.GENERATING_CHARACTER: {JobStatus.GENERATING_ACTION, JobStatus.FAILED},
     JobStatus.GENERATING_ACTION: {JobStatus.POSTPROCESSING, JobStatus.FAILED},
     JobStatus.POSTPROCESSING: {JobStatus.COMPLETED, JobStatus.FAILED},
+    JobStatus.VALIDATING_INPUTS: {JobStatus.MOTION_PLANNING, JobStatus.FAILED},
+    JobStatus.MOTION_PLANNING: {JobStatus.TEMPORAL_GENERATION, JobStatus.FAILED},
+    JobStatus.TEMPORAL_GENERATION: {
+        JobStatus.CHARACTER_STABILIZATION,
+        JobStatus.FAILED,
+    },
+    JobStatus.CHARACTER_STABILIZATION: {JobStatus.WEAPON_COMPOSITE, JobStatus.FAILED},
+    JobStatus.WEAPON_COMPOSITE: {JobStatus.GODOT_EXPORT, JobStatus.FAILED},
+    JobStatus.GODOT_EXPORT: {JobStatus.VALIDATING_OUTPUTS, JobStatus.FAILED},
+    JobStatus.VALIDATING_OUTPUTS: {JobStatus.COMPLETED, JobStatus.FAILED},
     JobStatus.COMPLETED: set(),
     JobStatus.FAILED: set(),
 }
@@ -51,11 +80,13 @@ class Job:
     """Typed representation of the durable job manifest."""
 
     id: str
-    request: AssetRequest
+    kind: JobKind
+    request: AssetRequest | AnimationRequest
     status: JobStatus
     created_at: str
     updated_at: str
     error: str | None = None
+    failed_stage: str | None = None
     prompt_ids: dict[str, str] = field(default_factory=dict)
     outputs: dict[str, str] = field(default_factory=dict)
 
@@ -68,6 +99,41 @@ class ComfyPromptClient(Protocol):
     ) -> dict[str, object]: ...
 
 
+class AnimationProcessorProtocol(Protocol):
+    def validate_inputs(self, request: AnimationRequest, job_id: str) -> object: ...
+
+    def plan_motion(
+        self, request: AnimationRequest, job_id: str, prepared: object
+    ) -> object: ...
+
+    async def generate(
+        self, request: AnimationRequest, job_id: str, prepared: object, plan: object
+    ) -> tuple[str, object]: ...
+
+    def stabilize(
+        self, request: AnimationRequest, plan: object, generated: object
+    ) -> object: ...
+
+    def composite(self, plan: object, stabilized: object, prepared: object) -> object: ...
+
+    def export(
+        self,
+        request: AnimationRequest,
+        job_id: str,
+        plan: object,
+        stabilized: object,
+        composited: object,
+    ) -> object: ...
+
+    def validate_and_publish(
+        self, request: AnimationRequest, job_id: str, staged: object
+    ) -> GodotArtifacts: ...
+
+
+class _AnimationCleanupProtocol(Protocol):
+    def cleanup(self, job_id: str) -> None: ...
+
+
 class JobStore:
     """Atomic JSON-backed job state transitions."""
 
@@ -77,10 +143,22 @@ class JobStore:
 
     def create(self, request: AssetRequest) -> Job:
         """Create a queued job with a random UUID4 identifier."""
+        return self._create(JobKind.GAME_ASSET, request)
+
+    def create_animation(self, request: AnimationRequest) -> Job:
+        """Create a queued production animation job with a durable seed."""
+        if request.seed is None:
+            request = replace(request, seed=secrets.randbits(64))
+        return self._create(JobKind.PRODUCTION_ANIMATION, request)
+
+    def _create(
+        self, kind: JobKind, request: AssetRequest | AnimationRequest
+    ) -> Job:
         job_id = str(uuid4())
         now = _timestamp()
         job = Job(
             id=job_id,
+            kind=kind,
             request=request,
             status=JobStatus.QUEUED,
             created_at=now,
@@ -118,11 +196,13 @@ class JobStore:
             raise ValueError(f"invalid job transition: {job.status.value} -> {next_status.value}")
         updated = Job(
             id=job.id,
+            kind=job.kind,
             request=job.request,
             status=next_status,
             created_at=job.created_at,
             updated_at=_timestamp(),
             error=str(error) if error is not None else None,
+            failed_stage=job.status.value if next_status is JobStatus.FAILED else job.failed_stage,
             prompt_ids=job.prompt_ids,
             outputs=dict(outputs) if outputs is not None else job.outputs,
         )
@@ -136,11 +216,13 @@ class JobStore:
         prompt_ids[stage] = prompt_id
         updated = Job(
             id=job.id,
+            kind=job.kind,
             request=job.request,
             status=job.status,
             created_at=job.created_at,
             updated_at=_timestamp(),
             error=job.error,
+            failed_stage=job.failed_stage,
             prompt_ids=prompt_ids,
             outputs=job.outputs,
         )
@@ -170,6 +252,7 @@ class JobRunner:
         project_root: Path,
         client: ComfyPromptClient,
         poll_timeout_seconds: float = 1800,
+        animation_processor: AnimationProcessorProtocol | None = None,
     ) -> None:
         self.project_root = Path(project_root)
         self.jobs_root = self.project_root / "output" / "game_assets"
@@ -178,6 +261,7 @@ class JobRunner:
         self.store = JobStore(self.jobs_root)
         self.client = client
         self.poll_timeout_seconds = poll_timeout_seconds
+        self.animation_processor = animation_processor
         self._queue: asyncio.Queue[str | None] = asyncio.Queue()
         self._worker: asyncio.Task[None] | None = None
 
@@ -201,6 +285,12 @@ class JobRunner:
         self._queue.put_nowait(job.id)
         return job
 
+    def enqueue_animation(self, request: AnimationRequest) -> Job:
+        """Persist a queued production animation in the serialized work queue."""
+        job = self.store.create_animation(request)
+        self._queue.put_nowait(job.id)
+        return job
+
     async def join(self) -> None:
         """Wait until every job currently queued has been processed."""
         await self._queue.join()
@@ -217,48 +307,87 @@ class JobRunner:
 
     async def _process(self, job_id: str) -> None:
         try:
-            job = self.store.transition(job_id, JobStatus.GENERATING_CHARACTER)
-            character_prompt_id = await self.client.submit(
-                build_character_workflow(job.request, job.id)
-            )
-            job = self.store.record_prompt_id(job.id, "character", character_prompt_id)
-            character_history = await self.client.wait_for_prompt(
-                character_prompt_id, self.poll_timeout_seconds
-            )
-            self._copy_character_outputs(job, character_history)
-
-            job = self.store.transition(job.id, JobStatus.GENERATING_ACTION)
-            action_prompt_id = await self.client.submit(
-                build_action_workflow(job.request, job.id, reference_input_path(job.id))
-            )
-            job = self.store.record_prompt_id(job.id, "action", action_prompt_id)
-            action_history = await self.client.wait_for_prompt(
-                action_prompt_id, self.poll_timeout_seconds
-            )
-            source_paths = self._source_paths(action_history)
-            selected_indices = frame_indices(len(source_paths), job.request.frame_count)
-
-            job = self.store.transition(job.id, JobStatus.POSTPROCESSING)
-            copied_paths = copy_selected_frames(
-                source_paths, selected_indices, self.jobs_root / job.id / "frames"
-            )
-            sprite_path, columns, rows = self._write_sprite_sheet(copied_paths, job.id)
-            metadata_path = self._write_metadata(
-                job,
-                source_paths,
-                selected_indices,
-                copied_paths,
-                sprite_path,
-                columns,
-                rows,
-            )
-            self.store.transition(
-                job.id,
-                JobStatus.COMPLETED,
-                outputs=_asset_outputs(job.id, copied_paths, sprite_path, metadata_path),
-            )
+            job = self.store.read(job_id)
+            if job.kind is JobKind.PRODUCTION_ANIMATION:
+                if self.animation_processor is None:
+                    raise ValueError("production animation processor is not configured")
+                await self._process_animation(job)
+            else:
+                await self._process_game_asset(job)
         except (RuntimeError, TimeoutError, ValueError, OSError) as error:
+            try:
+                job = self.store.read(job_id)
+                if job.kind is JobKind.PRODUCTION_ANIMATION and self.animation_processor is not None:
+                    cast(_AnimationCleanupProtocol, self.animation_processor).cleanup(job_id)
+            except (OSError, ValueError):
+                pass
             self._fail(job_id, error)
+
+    async def _process_game_asset(self, job: Job) -> None:
+        job = self.store.transition(job.id, JobStatus.GENERATING_CHARACTER)
+        character_prompt_id = await self.client.submit(
+            build_character_workflow(job.request, job.id)
+        )
+        job = self.store.record_prompt_id(job.id, "character", character_prompt_id)
+        character_history = await self.client.wait_for_prompt(
+            character_prompt_id, self.poll_timeout_seconds
+        )
+        self._copy_character_outputs(job, character_history)
+
+        job = self.store.transition(job.id, JobStatus.GENERATING_ACTION)
+        action_prompt_id = await self.client.submit(
+            build_action_workflow(job.request, job.id, reference_input_path(job.id))
+        )
+        job = self.store.record_prompt_id(job.id, "action", action_prompt_id)
+        action_history = await self.client.wait_for_prompt(
+            action_prompt_id, self.poll_timeout_seconds
+        )
+        source_paths = self._source_paths(action_history)
+        selected_indices = frame_indices(len(source_paths), job.request.frame_count)
+
+        job = self.store.transition(job.id, JobStatus.POSTPROCESSING)
+        copied_paths = copy_selected_frames(
+            source_paths, selected_indices, self.jobs_root / job.id / "frames"
+        )
+        sprite_path, columns, rows = self._write_sprite_sheet(copied_paths, job.id)
+        metadata_path = self._write_metadata(
+            job,
+            source_paths,
+            selected_indices,
+            copied_paths,
+            sprite_path,
+            columns,
+            rows,
+        )
+        self.store.transition(
+            job.id,
+            JobStatus.COMPLETED,
+            outputs=_asset_outputs(job.id, copied_paths, sprite_path, metadata_path),
+        )
+
+    async def _process_animation(self, job: Job) -> None:
+        processor = cast(AnimationProcessorProtocol, self.animation_processor)
+        request = cast(AnimationRequest, job.request)
+        job = self.store.transition(job.id, JobStatus.VALIDATING_INPUTS)
+        prepared = processor.validate_inputs(request, job.id)
+        job = self.store.transition(job.id, JobStatus.MOTION_PLANNING)
+        plan = processor.plan_motion(request, job.id, prepared)
+        job = self.store.transition(job.id, JobStatus.TEMPORAL_GENERATION)
+        prompt_id, generated = await processor.generate(request, job.id, prepared, plan)
+        job = self.store.record_prompt_id(job.id, "animation", prompt_id)
+        job = self.store.transition(job.id, JobStatus.CHARACTER_STABILIZATION)
+        stabilized = processor.stabilize(request, plan, generated)
+        job = self.store.transition(job.id, JobStatus.WEAPON_COMPOSITE)
+        composited = processor.composite(plan, stabilized, prepared)
+        job = self.store.transition(job.id, JobStatus.GODOT_EXPORT)
+        staged = processor.export(request, job.id, plan, stabilized, composited)
+        job = self.store.transition(job.id, JobStatus.VALIDATING_OUTPUTS)
+        artifacts = processor.validate_and_publish(request, job.id, staged)
+        self.store.transition(
+            job.id,
+            JobStatus.COMPLETED,
+            outputs=_animation_outputs(job.id, artifacts),
+        )
 
     def _copy_character_outputs(
         self, job: Job, history: Mapping[str, object]
@@ -388,6 +517,20 @@ def _asset_outputs(
     return outputs
 
 
+def _animation_outputs(job_id: str, artifacts: GodotArtifacts) -> dict[str, str]:
+    base = f"/assets/{job_id}/production_action"
+    return {
+        **{
+            f"frame_{index:03d}": f"{base}/frames/{path.name}"
+            for index, path in enumerate(artifacts.frames)
+        },
+        "spritesheet": f"{base}/{artifacts.spritesheet.name}",
+        "sprite_frames": f"{base}/{artifacts.sprite_frames.name}",
+        "metadata": f"{base}/{artifacts.metadata.name}",
+        "preview": f"{base}/{artifacts.preview.name}",
+    }
+
+
 def _model_filenames() -> list[str]:
     return [
         "sd_xl_base_1.0.safetensors",
@@ -406,10 +549,12 @@ def _timestamp() -> str:
 def _job_manifest(job: Job) -> dict[str, object]:
     return {
         "id": job.id,
+        "kind": job.kind.value,
         "request": asdict(job.request),
         "status": job.status.value,
         "timestamps": {"created_at": job.created_at, "updated_at": job.updated_at},
         "error": job.error,
+        "failed_stage": job.failed_stage,
         "prompt_ids": job.prompt_ids,
         "outputs": job.outputs,
     }
@@ -418,12 +563,16 @@ def _job_manifest(job: Job) -> dict[str, object]:
 def _job_from_manifest(manifest: Mapping[str, object]) -> Job:
     try:
         job_id = manifest["id"]
+        kind = JobKind(manifest.get("kind", JobKind.GAME_ASSET.value))
         request_data = manifest["request"]
         if not isinstance(request_data, Mapping):
             raise ValueError("job request is malformed")
-        request = parse_asset_request(
-            {key: value for key, value in request_data.items() if value is not None}
+        parser = (
+            parse_asset_request
+            if kind is JobKind.GAME_ASSET
+            else parse_animation_request
         )
+        request = parser({key: value for key, value in request_data.items() if value is not None})
         status = JobStatus(manifest["status"])
         timestamps = manifest["timestamps"]
     except (KeyError, TypeError, ValueError) as error:
@@ -433,6 +582,7 @@ def _job_from_manifest(manifest: Mapping[str, object]) -> Job:
     created_at = timestamps.get("created_at")
     updated_at = timestamps.get("updated_at")
     error = manifest.get("error")
+    failed_stage = manifest.get("failed_stage")
     prompt_ids = manifest.get("prompt_ids", {})
     outputs = manifest.get("outputs", {})
     if (
@@ -440,19 +590,30 @@ def _job_from_manifest(manifest: Mapping[str, object]) -> Job:
         or not isinstance(updated_at, str)
         or error is not None
         and not isinstance(error, str)
+        or failed_stage is not None
+        and not isinstance(failed_stage, str)
         or not isinstance(prompt_ids, Mapping)
         or not isinstance(outputs, Mapping)
         or any(not isinstance(key, str) or not isinstance(value, str) for key, value in prompt_ids.items())
         or any(not isinstance(key, str) or not isinstance(value, str) for key, value in outputs.items())
     ):
         raise ValueError("job manifest is malformed")
+    if failed_stage is not None:
+        try:
+            failed_status = JobStatus(failed_stage)
+        except ValueError as error:
+            raise ValueError("job manifest is malformed") from error
+        if status is not JobStatus.FAILED or failed_status in _TERMINAL_STATUSES:
+            raise ValueError("job manifest is malformed")
     return Job(
         id=job_id,
+        kind=kind,
         request=request,
         status=status,
         created_at=created_at,
         updated_at=updated_at,
         error=error,
+        failed_stage=failed_stage,
         prompt_ids=dict(prompt_ids),
         outputs=dict(outputs),
     )

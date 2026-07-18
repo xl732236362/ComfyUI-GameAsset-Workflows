@@ -7,6 +7,7 @@ from pathlib import Path
 
 from aiohttp import web
 
+from game_asset_api.animation_pipeline import AnimationProcessor
 from game_asset_api.app import create_app
 from game_asset_api.comfy_client import ComfyClient
 from game_asset_api.jobs import JobRunner
@@ -17,7 +18,8 @@ def main() -> None:
     port = _port_from_environment()
     project_root = _project_root_from_environment()
     client = ComfyClient()
-    runner = JobRunner(project_root, client)
+    animation_processor = AnimationProcessor(project_root, client)
+    runner = JobRunner(project_root, client, animation_processor=animation_processor)
     app = create_app(runner, client)
     web.run_app(app, host=os.environ.get("GAME_ASSET_API_HOST", "127.0.0.1"), port=port)
 

@@ -9,8 +9,9 @@ import pytest
 import game_asset_api.app as app_module
 import game_asset_api.__main__ as main_module
 from game_asset_api.app import create_app
+from game_asset_api.animation_contracts import AnimationRequest, parse_animation_request
 from game_asset_api.contracts import AssetRequest, parse_asset_request
-from game_asset_api.jobs import JobStatus, JobStore
+from game_asset_api.jobs import JobKind, JobStatus, JobStore
 
 
 class _FakeRunner:
@@ -29,6 +30,9 @@ class _FakeRunner:
     def enqueue(self, request: AssetRequest):
         return self.store.create(request)
 
+    def enqueue_animation(self, request: AnimationRequest):
+        return self.store.create_animation(request)
+
 
 class _FakeClient:
     def __init__(self) -> None:
@@ -41,6 +45,21 @@ class _FakeClient:
 def _request() -> AssetRequest:
     return parse_asset_request(
         {"character_prompt": "armored knight", "action_prompt": "walk"}
+    )
+
+
+def _animation_request() -> AnimationRequest:
+    return parse_animation_request(
+        {
+            "asset_name": "cultivator_attack",
+            "character_image": "characters/cultivator.png",
+            "character_prompt": "cultivator",
+            "weapon": "weapons/sword.json",
+            "action": "sword_attack",
+            "frame_count": 8,
+            "sprite_size": 64,
+            "seed": 7,
+        }
     )
 
 
@@ -89,6 +108,35 @@ async def test_post_asset_request_queues_valid_request_and_rejects_invalid_camer
 
 
 @pytest.mark.asyncio
+async def test_post_animation_request_queues_typed_job_and_rejects_malformed_json(
+    aiohttp_client, tmp_path
+):
+    runner = _FakeRunner(tmp_path)
+    client = await aiohttp_client(create_app(runner))
+
+    created = await client.post(
+        "/v1/animations",
+        json={
+            "asset_name": "cultivator_attack",
+            "character_image": "characters/cultivator.png",
+            "character_prompt": "cultivator",
+            "weapon": "weapons/sword.json",
+            "action": "sword_attack",
+        },
+    )
+    malformed = await client.post(
+        "/v1/animations", data="{", headers={"Content-Type": "application/json"}
+    )
+
+    payload = await created.json()
+    assert created.status == 202
+    assert payload["status"] == "queued"
+    assert runner.store.read(payload["job_id"]).kind is JobKind.PRODUCTION_ANIMATION
+    assert malformed.status == 400
+    assert await malformed.json() == {"error": "request body must be valid JSON"}
+
+
+@pytest.mark.asyncio
 async def test_job_status_exposes_completed_assets_in_frame_order(aiohttp_client, tmp_path):
     runner = _FakeRunner(tmp_path)
     job = runner.enqueue(_request())
@@ -129,6 +177,71 @@ async def test_job_status_exposes_completed_assets_in_frame_order(aiohttp_client
     }
     assert malformed.status == 404
     assert unknown.status == 404
+
+
+@pytest.mark.asyncio
+async def test_completed_animation_job_exposes_godot_bundle_urls(aiohttp_client, tmp_path):
+    runner = _FakeRunner(tmp_path)
+    job = runner.enqueue_animation(_animation_request())
+    for status in (
+        JobStatus.VALIDATING_INPUTS,
+        JobStatus.MOTION_PLANNING,
+        JobStatus.TEMPORAL_GENERATION,
+        JobStatus.CHARACTER_STABILIZATION,
+        JobStatus.WEAPON_COMPOSITE,
+        JobStatus.GODOT_EXPORT,
+        JobStatus.VALIDATING_OUTPUTS,
+    ):
+        job = runner.store.transition(job.id, status)
+    runner.store.transition(
+        job.id,
+        JobStatus.COMPLETED,
+        outputs={
+            "frame_000": f"/assets/{job.id}/production_action/frames/000.png",
+            "spritesheet": f"/assets/{job.id}/production_action/spritesheet.png",
+            "metadata": f"/assets/{job.id}/production_action/animation.json",
+            "sprite_frames": f"/assets/{job.id}/production_action/sprite_frames.tres",
+            "preview": f"/assets/{job.id}/production_action/preview.gif",
+        },
+    )
+    client = await aiohttp_client(create_app(runner))
+
+    response = await client.get(f"/v1/jobs/{job.id}")
+
+    assert await response.json() == {
+        "job_id": job.id,
+        "status": "completed",
+        "frames": [f"/assets/{job.id}/production_action/frames/000.png"],
+        "spritesheet": f"/assets/{job.id}/production_action/spritesheet.png",
+        "metadata": f"/assets/{job.id}/production_action/animation.json",
+        "sprite_frames": f"/assets/{job.id}/production_action/sprite_frames.tres",
+        "preview": f"/assets/{job.id}/production_action/preview.gif",
+    }
+
+
+@pytest.mark.asyncio
+async def test_failed_animation_job_exposes_its_failed_stage(aiohttp_client, tmp_path):
+    runner = _FakeRunner(tmp_path)
+    job = runner.enqueue_animation(_animation_request())
+    for status in (
+        JobStatus.VALIDATING_INPUTS,
+        JobStatus.MOTION_PLANNING,
+        JobStatus.TEMPORAL_GENERATION,
+    ):
+        job = runner.store.transition(job.id, status)
+    runner.store.transition(
+        job.id, JobStatus.FAILED, error="temporal generation failed"
+    )
+    client = await aiohttp_client(create_app(runner))
+
+    response = await client.get(f"/v1/jobs/{job.id}")
+
+    assert await response.json() == {
+        "job_id": job.id,
+        "status": "failed",
+        "error": "temporal generation failed",
+        "stage": "temporal_generation",
+    }
 
 
 @pytest.mark.asyncio
@@ -443,9 +556,15 @@ def test_main_constructs_local_api_with_environment_host_and_port(monkeypatch, t
         pass
 
     class FakeRunner:
-        def __init__(self, project_root, client) -> None:
+        def __init__(self, project_root, client, animation_processor) -> None:
             calls["project_root"] = project_root
             calls["runner_client"] = client
+            calls["runner_processor"] = animation_processor
+
+    class FakeAnimationProcessor:
+        def __init__(self, project_root, client) -> None:
+            calls["processor_project_root"] = project_root
+            calls["processor_client"] = client
 
     def fake_create_app(runner, client):
         calls["app_runner"] = runner
@@ -463,6 +582,7 @@ def test_main_constructs_local_api_with_environment_host_and_port(monkeypatch, t
     monkeypatch.setenv("COMFYUI_ROOT", str(runtime_root))
     with (
         patch.object(main_module, "ComfyClient", FakeClient),
+        patch.object(main_module, "AnimationProcessor", FakeAnimationProcessor),
         patch.object(main_module, "JobRunner", FakeRunner),
         patch.object(main_module, "create_app", fake_create_app),
         patch.object(main_module.web, "run_app", fake_run_app),
@@ -471,6 +591,9 @@ def test_main_constructs_local_api_with_environment_host_and_port(monkeypatch, t
 
     assert calls["project_root"] == runtime_root.resolve()
     assert calls["runner_client"] is calls["app_client"]
+    assert calls["processor_project_root"] == runtime_root.resolve()
+    assert calls["processor_client"] is calls["runner_client"]
+    assert calls["runner_processor"] is not None
     assert calls["app_runner"] is not None
     assert calls["run"] == ("app", "0.0.0.0", 9001)
 
