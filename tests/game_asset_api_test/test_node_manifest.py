@@ -5,7 +5,16 @@ from zipfile import ZipFile
 
 import pytest
 
-from game_asset_api.node_manifest import NodeSpec, install_node_archive
+from game_asset_api.node_manifest import NODE_SPECS, NodeSpec, install_node_archive
+
+
+def test_node_manifest_pins_animatediff_evolved():
+    spec = next(
+        spec for spec in NODE_SPECS if spec.name == "ComfyUI-AnimateDiff-Evolved"
+    )
+
+    assert spec.revision == "d8d163cd90b1111f6227495e3467633676fbb346"
+    assert spec.archive_url.endswith(spec.revision)
 
 
 def _load_node_installer():

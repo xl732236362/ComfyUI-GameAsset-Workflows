@@ -23,6 +23,7 @@ class ModelSpec:
     url: str
     size: int
     sha256: str
+    fallback_urls: tuple[str, ...] = ()
 
     def destination(self, root: Path) -> Path:
         return root / "models" / self.relative_dir / self.filename
@@ -71,6 +72,20 @@ MODEL_SPECS = (
         size=2_528_373_448,
         sha256="6ca9667da1ca9e0b0f75e46bb030f7e011f44f86cbfb8d5a36590fcd7507b030",
     ),
+    ModelSpec(
+        filename="mm_sdxl_v10_beta.safetensors",
+        relative_dir="animatediff_models",
+        url=(
+            "https://hf-mirror.com/guoyww/animatediff-motion-adapter-sdxl-beta/resolve/"
+            "26c864717b4d4b002bb48ae6c9d6bb431548c6cb/diffusion_pytorch_model.fp16.safetensors"
+        ),
+        size=474_328_896,
+        sha256="24c3c5f48006ce2ce7b06188622865c620b2d33db23b1af671cc1f21716b5826",
+        fallback_urls=(
+            "https://huggingface.co/guoyww/animatediff-motion-adapter-sdxl-beta/resolve/"
+            "26c864717b4d4b002bb48ae6c9d6bb431548c6cb/diffusion_pytorch_model.fp16.safetensors",
+        ),
+    ),
 )
 
 
@@ -117,21 +132,31 @@ def install(spec: ModelSpec, root: Path) -> Path:
     if partial.exists() and partial.stat().st_size >= spec.size:
         partial.unlink()
 
-    command = [
-        "curl.exe",
-        "--fail",
-        "--location",
-        "--continue-at",
-        "-",
-        "--retry",
-        "10",
-    ]
-    if _curl_supports_retry_all_errors():
-        command.append("--retry-all-errors")
-    command.extend(["--output", str(partial), spec.url])
-    subprocess.run(command, check=True)
-    if not verify_file(partial, spec.size, spec.sha256):
-        raise RuntimeError(f"Downloaded model failed verification: {spec.filename}")
+    last_error = None
+    for url in (spec.url, *spec.fallback_urls):
+        command = [
+            "curl.exe",
+            "--fail",
+            "--location",
+            "--continue-at",
+            "-",
+            "--retry",
+            "10",
+        ]
+        if _curl_supports_retry_all_errors():
+            command.append("--retry-all-errors")
+        command.extend(["--output", str(partial), url])
+        try:
+            subprocess.run(command, check=True)
+        except subprocess.CalledProcessError as error:
+            last_error = error
+            continue
+        if not verify_file(partial, spec.size, spec.sha256):
+            raise RuntimeError(f"Downloaded model failed verification: {spec.filename}")
 
-    os.replace(partial, destination)
-    return destination
+        os.replace(partial, destination)
+        return destination
+
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError(f"Downloaded model failed verification: {spec.filename}")

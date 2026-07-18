@@ -10,6 +10,8 @@ import sys
 from urllib.error import HTTPError
 from urllib.request import urlopen
 
+from PIL import Image
+
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -97,14 +99,19 @@ def deploy(arguments: argparse.Namespace) -> None:
         reference = (comfy_root / "input" / "example.png").resolve()
         if not reference.is_file():
             raise ValueError(f"smoke reference not found: {reference}")
+        weapon = _write_smoke_weapon(comfy_root)
         subprocess.run(
             [
                 python_command,
-                str(ROOT / "scripts" / "run_pose_controlled_action.py"),
+                str(ROOT / "scripts" / "run_production_animation.py"),
                 "--root",
                 root_argument,
-                "--reference",
-                str(reference),
+                "--character-image",
+                reference.relative_to(comfy_root / "input").as_posix(),
+                "--weapon",
+                weapon.relative_to(comfy_root / "input").as_posix(),
+                "--asset-name",
+                "deployment-smoke",
                 "--job-id",
                 "deployment-smoke",
                 "--character-prompt",
@@ -118,6 +125,33 @@ def deploy(arguments: argparse.Namespace) -> None:
             ],
             check=True,
         )
+
+
+def _write_smoke_weapon(comfy_root: Path) -> Path:
+    directory = comfy_root / "input" / "game_assets" / "deployment-smoke"
+    directory.mkdir(parents=True, exist_ok=True)
+    weapon = directory / "sword.png"
+    image = Image.new("RGBA", (16, 4), (0, 0, 0, 0))
+    for x in range(2, 14):
+        image.putpixel((x, 2), (220, 230, 240, 255))
+    image.save(weapon, format="PNG")
+
+    descriptor = directory / "sword.json"
+    descriptor.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "image": weapon.name,
+                "grip": [0.125, 0.5],
+                "tip": [0.875, 0.5],
+                "default_layer": "behind_character",
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return descriptor
 
 
 def main(argv: list[str] | None = None) -> None:

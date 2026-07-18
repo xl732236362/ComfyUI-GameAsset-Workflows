@@ -13,8 +13,16 @@ WORKFLOW_NAMES = (
     "pose_controlled_pixel_action_api.json",
     "video_wan2_2_5B_ti2v.json",
     "wan2_2_5b_dual_balanced.json",
+    "production_animation_api.json",
 )
-_API_WORKFLOW_NAMES = frozenset(WORKFLOW_NAMES[:3])
+_API_WORKFLOW_NAMES = frozenset(
+    {
+        "pixel_character_design_api.json",
+        "pixel_character_action_api.json",
+        "pose_controlled_pixel_action_api.json",
+        "production_animation_api.json",
+    }
+)
 _DISCOVERY_INPUTS = frozenset(
     {
         ("CheckpointLoaderSimple", "ckpt_name"),
@@ -32,6 +40,8 @@ _DISCOVERY_INPUTS = frozenset(
         ("IPAdapterAdvanced", "combine_embeds"),
         ("IPAdapterAdvanced", "embeds_scaling"),
         ("ControlNetLoader", "control_net_name"),
+        ("ADE_LoadAnimateDiffModel", "model_name"),
+        ("ADE_UseEvolvedSampling", "beta_schedule"),
         ("ImageScale", "upscale_method"),
         ("ImageScale", "crop"),
         ("KSampler", "sampler_name"),

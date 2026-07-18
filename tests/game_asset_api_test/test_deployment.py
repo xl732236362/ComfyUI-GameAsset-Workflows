@@ -8,6 +8,7 @@ from pathlib import Path
 from urllib.error import HTTPError
 
 import pytest
+from PIL import Image
 
 import game_asset_api.deployment as deployment_module
 from game_asset_api.deployment import (
@@ -24,14 +25,23 @@ EXPECTED_WORKFLOW_NAMES = (
     "pose_controlled_pixel_action_api.json",
     "video_wan2_2_5B_ti2v.json",
     "wan2_2_5b_dual_balanced.json",
+    "production_animation_api.json",
+)
+_API_WORKFLOW_NAMES = frozenset(
+    {
+        "pixel_character_design_api.json",
+        "pixel_character_action_api.json",
+        "pose_controlled_pixel_action_api.json",
+        "production_animation_api.json",
+    }
 )
 
 
 def _write_sources(directory: Path) -> dict[str, bytes]:
     directory.mkdir(parents=True)
     payloads = {}
-    for index, name in enumerate(WORKFLOW_NAMES):
-        if index < 3:
+    for name in WORKFLOW_NAMES:
+        if name in _API_WORKFLOW_NAMES:
             workflow = {"prompt": {}}
         else:
             workflow = {"nodes": [{"id": 1, "type": "KSampler"}], "links": []}
@@ -129,6 +139,10 @@ def _object_info_fixture() -> dict:
             "format": choices("mp4"),
             "codec": choices("h264"),
         },
+        "ADE_LoadAnimateDiffModel": {
+            "model_name": choices("mm_sdxl_v10_beta.safetensors")
+        },
+        "ADE_UseEvolvedSampling": {"beta_schedule": choices("autoselect")},
     }
     for node_type, inputs in required_choices.items():
         object_info[node_type]["input"]["required"].update(inputs)
@@ -149,7 +163,21 @@ def test_workflow_names_are_complete_and_ordered():
     assert WORKFLOW_NAMES == EXPECTED_WORKFLOW_NAMES
 
 
-def test_publish_workflows_validates_and_copies_all_five(tmp_path):
+def test_validate_object_info_rejects_missing_animatediff_model_option():
+    object_info = _object_info_fixture()
+    object_info["ADE_LoadAnimateDiffModel"]["input"]["required"]["model_name"] = [
+        ["another-motion-model.safetensors"]
+    ]
+
+    with pytest.raises(
+        ValueError, match="ADE_LoadAnimateDiffModel.model_name"
+    ) as captured:
+        _validate_object_info(object_info)
+
+    assert "mm_sdxl_v10_beta.safetensors" in str(captured.value)
+
+
+def test_publish_workflows_validates_and_copies_all_workflows(tmp_path):
     source = tmp_path / "source"
     payloads = _write_sources(source)
     comfy_root = tmp_path / "ComfyUI"
@@ -159,7 +187,7 @@ def test_publish_workflows_validates_and_copies_all_five(tmp_path):
 
     destination = comfy_root / "user" / "default" / "workflows"
     assert tuple(path.name for path in published) == WORKFLOW_NAMES
-    assert tuple(path.parent for path in published) == (destination,) * 5
+    assert tuple(path.parent for path in published) == (destination,) * len(WORKFLOW_NAMES)
     assert {path.name: path.read_bytes() for path in published} == payloads
 
 
@@ -560,11 +588,15 @@ def test_deploy_runs_all_operations_in_order_with_explicit_root_and_python(
         "run",
         [
             selected_python,
-            str(ROOT / "scripts" / "run_pose_controlled_action.py"),
+            str(ROOT / "scripts" / "run_production_animation.py"),
             "--root",
             str(root),
-            "--reference",
-            str(reference.resolve()),
+            "--character-image",
+            "example.png",
+            "--weapon",
+            "game_assets/deployment-smoke/sword.json",
+            "--asset-name",
+            "deployment-smoke",
             "--job-id",
             "deployment-smoke",
             "--character-prompt",
@@ -578,6 +610,18 @@ def test_deploy_runs_all_operations_in_order_with_explicit_root_and_python(
         ],
         True,
     )
+    descriptor = root / "input" / "game_assets" / "deployment-smoke" / "sword.json"
+    weapon = descriptor.with_name("sword.png")
+    assert json.loads(descriptor.read_text(encoding="utf-8")) == {
+        "schema_version": 1,
+        "image": "sword.png",
+        "grip": [0.125, 0.5],
+        "tip": [0.875, 0.5],
+        "default_layer": "behind_character",
+    }
+    with Image.open(weapon) as image:
+        assert image.mode == "RGBA"
+        assert image.getpixel((0, 0))[3] == 0
 
 
 def test_deploy_skip_flags_avoid_all_optional_side_effects(tmp_path, monkeypatch):

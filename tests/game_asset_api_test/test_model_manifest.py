@@ -54,6 +54,28 @@ def test_manifest_contains_verified_model_specs():
     assert "CLIP-ViT-bigG-14-laion2B-39B-b160k.safetensors" not in specs_by_filename
 
 
+def test_manifest_contains_verified_sdxl_motion_adapter():
+    spec = next(
+        spec
+        for spec in MODEL_SPECS
+        if spec.filename == "mm_sdxl_v10_beta.safetensors"
+    )
+
+    assert spec.relative_dir == "animatediff_models"
+    assert spec.size == 474_328_896
+    assert (
+        spec.sha256
+        == "24c3c5f48006ce2ce7b06188622865c620b2d33db23b1af671cc1f21716b5826"
+    )
+    assert (
+        spec.url
+        == "https://hf-mirror.com/guoyww/animatediff-motion-adapter-sdxl-beta/resolve/26c864717b4d4b002bb48ae6c9d6bb431548c6cb/diffusion_pytorch_model.fp16.safetensors"
+    )
+    assert spec.fallback_urls == (
+        "https://huggingface.co/guoyww/animatediff-motion-adapter-sdxl-beta/resolve/26c864717b4d4b002bb48ae6c9d6bb431548c6cb/diffusion_pytorch_model.fp16.safetensors",
+    )
+
+
 def test_model_spec_is_immutable_and_builds_destination(tmp_path):
     spec = ModelSpec("model.safetensors", "checkpoints", "https://example.invalid/model", 1, "0" * 64)
 
@@ -187,6 +209,44 @@ def test_install_omits_retry_all_errors_when_curl_version_cannot_be_parsed(tmp_p
 
     assert commands[0] == ["curl.exe", "--version"]
     assert "--retry-all-errors" not in commands[1]
+
+
+def test_install_resumes_the_shared_partial_from_fallback_after_primary_failure(
+    tmp_path, monkeypatch
+):
+    payload = b"downloaded by fallback"
+    primary = "https://mirror.invalid/model.safetensors"
+    fallback = "https://upstream.invalid/model.safetensors"
+    spec = ModelSpec(
+        "model.safetensors",
+        "animatediff_models",
+        primary,
+        len(payload),
+        sha256(payload).hexdigest(),
+        fallback_urls=(fallback,),
+    )
+    partial = spec.destination(tmp_path).with_name(f"{spec.filename}.part")
+    commands = []
+
+    def fake_run(command, **_kwargs):
+        commands.append(command)
+        partial.parent.mkdir(parents=True, exist_ok=True)
+        if command[-1] == primary:
+            partial.write_bytes(b"partial")
+            raise subprocess.CalledProcessError(1, command)
+        assert command[-1] == fallback
+        partial.write_bytes(payload)
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(model_manifest, "_curl_supports_retry_all_errors", lambda: False)
+    monkeypatch.setattr(model_manifest.subprocess, "run", fake_run)
+
+    destination = install(spec, tmp_path)
+
+    assert destination.read_bytes() == payload
+    assert [command[-1] for command in commands] == [primary, fallback]
+    assert all(command[command.index("--output") + 1] == str(partial) for command in commands)
+    assert all(command[command.index("--continue-at") + 1] == "-" for command in commands)
 
 
 def test_installer_script_imports_manifest_when_launched_by_path():
