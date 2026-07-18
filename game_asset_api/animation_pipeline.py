@@ -155,10 +155,10 @@ class AnimationProcessor:
     ) -> GodotArtifacts:
         """Accept the complete staged bundle, then publish it with one rename."""
         temporary = self._temporary_bundle(job_id)
-        _validate_artifacts(staged, temporary, request.frame_count, request.sprite_size)
         final = self._final_bundle(job_id)
         if final.exists():
-            shutil.rmtree(final)
+            raise ValueError("production action is already published")
+        _validate_artifacts(staged, temporary, request.frame_count, request.sprite_size)
         os.replace(temporary, final)
         self._remove_generation_work(job_id)
         return _rebased_artifacts(staged, final)

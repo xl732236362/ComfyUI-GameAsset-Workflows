@@ -154,6 +154,22 @@ def test_validate_and_publish_rejects_non_relative_metadata_artifacts(tmp_path: 
     ).exists()
 
 
+def test_validate_and_publish_preserves_an_existing_final_bundle(tmp_path: Path) -> None:
+    request = _write_valid_runtime_inputs(tmp_path, frame_count=8)
+    processor = AnimationProcessor(tmp_path, FakeClient({}))
+    staged = _write_staged_bundle(processor, request, "job-id")
+    final = tmp_path / "output" / "game_assets" / "job-id" / "production_action"
+    final.mkdir(parents=True)
+    preserved = final / "published.txt"
+    preserved.write_text("keep", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="production action is already published"):
+        processor.validate_and_publish(request, "job-id", staged)
+
+    assert preserved.read_text(encoding="utf-8") == "keep"
+    assert staged.metadata.parent.exists()
+
+
 @pytest.mark.parametrize(
     ("artifact", "content", "message"),
     [
@@ -220,6 +236,58 @@ def test_cli_accepts_two_frame_preflight_without_changing_http_contract() -> Non
                 "frame_count": 2,
             }
         )
+
+
+@pytest.mark.asyncio
+async def test_cli_cleans_up_when_a_processor_stage_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = _load_runner()
+    cleaned: list[str] = []
+
+    class FakeComfyClient:
+        def __init__(self, _base_url: str) -> None:
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args: object) -> None:
+            pass
+
+    class FailingProcessor:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            pass
+
+        def validate_inputs(self, *args: object) -> object:
+            raise RuntimeError("stage failed")
+
+        def cleanup(self, job_id: str) -> None:
+            cleaned.append(job_id)
+
+    monkeypatch.setattr(runner, "ComfyClient", FakeComfyClient)
+    monkeypatch.setattr(runner, "AnimationProcessor", FailingProcessor)
+    arguments = runner.parse_args(
+        [
+            "--root",
+            "runtime",
+            "--character-image",
+            "characters/cultivator.png",
+            "--weapon",
+            "weapons/sword.json",
+            "--asset-name",
+            "cultivator_attack",
+            "--character-prompt",
+            "cultivator",
+            "--job-id",
+            "failed-job",
+        ]
+    )
+
+    with pytest.raises(RuntimeError, match="stage failed"):
+        await runner.run(arguments)
+
+    assert cleaned == ["failed-job"]
 
 
 def _write_valid_runtime_inputs(root: Path, frame_count: int):

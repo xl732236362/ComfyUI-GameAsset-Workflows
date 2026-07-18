@@ -65,17 +65,21 @@ async def run(arguments: argparse.Namespace) -> GodotArtifacts:
         processor = AnimationProcessor(
             arguments.root, client, timeout_seconds=arguments.timeout_seconds
         )
-        prepared = processor.validate_inputs(request, arguments.job_id)
-        plan = processor.plan_motion(request, arguments.job_id, prepared)
-        _, generated = await processor.generate(
-            request, arguments.job_id, prepared, plan
-        )
-        stabilized = processor.stabilize(request, plan, generated)
-        composited = processor.composite(plan, stabilized, prepared)
-        staged = processor.export(
-            request, arguments.job_id, plan, stabilized, composited
-        )
-        return processor.validate_and_publish(request, arguments.job_id, staged)
+        try:
+            prepared = processor.validate_inputs(request, arguments.job_id)
+            plan = processor.plan_motion(request, arguments.job_id, prepared)
+            _, generated = await processor.generate(
+                request, arguments.job_id, prepared, plan
+            )
+            stabilized = processor.stabilize(request, plan, generated)
+            composited = processor.composite(plan, stabilized, prepared)
+            staged = processor.export(
+                request, arguments.job_id, plan, stabilized, composited
+            )
+            return processor.validate_and_publish(request, arguments.job_id, staged)
+        except Exception:
+            processor.cleanup(arguments.job_id)
+            raise
 
 
 def main(argv: list[str] | None = None) -> None:
