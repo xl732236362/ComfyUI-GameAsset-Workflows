@@ -129,8 +129,6 @@ class AnimationProcessorProtocol(Protocol):
         self, request: AnimationRequest, job_id: str, staged: object
     ) -> GodotArtifacts: ...
 
-
-class _AnimationCleanupProtocol(Protocol):
     def cleanup(self, job_id: str) -> None: ...
 
 
@@ -318,7 +316,10 @@ class JobRunner:
             try:
                 job = self.store.read(job_id)
                 if job.kind is JobKind.PRODUCTION_ANIMATION and self.animation_processor is not None:
-                    cast(_AnimationCleanupProtocol, self.animation_processor).cleanup(job_id)
+                    try:
+                        self.animation_processor.cleanup(job_id)
+                    except Exception:
+                        pass
             except (OSError, ValueError):
                 pass
             self._fail(job_id, error)

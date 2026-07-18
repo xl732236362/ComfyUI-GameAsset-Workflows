@@ -264,6 +264,51 @@ async def test_job_runner_cleans_production_work_after_each_stage_failure(
     assert processor.cleanups == [job.id]
 
 
+class _CleanupFailingProcessor(_FakeAnimationProcessor):
+    def __init__(self, output_root: Path) -> None:
+        super().__init__(output_root)
+        self.fail_first_job = True
+
+    def validate_inputs(self, request, job_id):
+        self._stage("validate_inputs", job_id)
+        if self.fail_first_job:
+            self.fail_first_job = False
+            raise RuntimeError("generation failed")
+        return "prepared"
+
+    def cleanup(self, job_id):
+        super().cleanup(job_id)
+        raise RuntimeError("cleanup failed")
+
+
+@pytest.mark.asyncio
+async def test_job_runner_persists_generation_failure_and_continues_after_cleanup_failure(
+    tmp_path,
+):
+    processor = _CleanupFailingProcessor(tmp_path / "output" / "game_assets")
+    runner = JobRunner(tmp_path, _FakeComfyClient({}, {}), animation_processor=processor)
+    processor.store = runner.store
+    runner.start()
+    first = runner.enqueue_animation(_animation_request())
+    second = runner.enqueue_animation(_animation_request(asset_name="second_attack"))
+
+    try:
+        await asyncio.wait_for(runner.join(), timeout=0.2)
+    finally:
+        worker = runner._worker
+        if worker is not None and worker.done():
+            worker.exception()
+        elif worker is not None:
+            await runner.stop()
+
+    failed = runner.store.read(first.id)
+    assert failed.status is JobStatus.FAILED
+    assert failed.failed_stage == JobStatus.VALIDATING_INPUTS.value
+    assert failed.error == "generation failed"
+    assert runner.store.read(second.id).status is JobStatus.COMPLETED
+    assert processor.cleanups == [first.id]
+
+
 @pytest.mark.asyncio
 async def test_comfy_client_submits_prompt_and_reads_completed_history(aiohttp_client):
     submitted: list[dict[str, object]] = []
